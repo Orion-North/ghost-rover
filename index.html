@@ -49,7 +49,7 @@ b,h1,h2,h3{font-weight:700}
 #coords{position:fixed;left:16px;bottom:14px;z-index:5;font-size:16px}
 #coords small{display:block;font-weight:500;font-size:12px;color:var(--dim);margin-top:1px}
 #mini{position:fixed;right:20px;bottom:20px;z-index:5;border-radius:50%;box-shadow:0 0 16px 3px var(--glow,#9db8ff),0 12px 26px rgba(0,0,0,.6)}
-#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,160%);z-index:6;max-width:min(640px,calc(100vw - 790px));min-width:300px;background:#fff;color:#22264d;border-radius:24px;
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,160%);z-index:12;max-width:min(640px,calc(100vw - 790px));min-width:300px;background:#fff;color:#22264d;border-radius:24px;
   padding:14px 22px 14px 18px;font-size:21px;line-height:1.3;display:flex;gap:14px;align-items:center;border:4px solid var(--gold);box-shadow:0 8px 0 rgba(0,0,0,.25);transition:transform .45s cubic-bezier(.2,1.5,.4,1)}
 #toast.show{transform:translate(-50%,0)}
 #toast .ico{font-size:40px;line-height:1}
@@ -83,7 +83,13 @@ b,h1,h2,h3{font-weight:700}
 .sw{width:42px;height:42px;border-radius:50%;border:4px solid rgba(255,255,255,.4);padding:0;transition:transform .12s}
 .sw.on{border-color:#fff;transform:scale(1.2);box-shadow:0 0 0 4px rgba(255,255,255,.25)}
 #lobby .go{font-size:26px;padding:16px 34px;margin-top:22px}
-.keys{color:var(--dim);font-size:14px;margin-top:14px}
+.keys{color:var(--dim);font-size:14px;margin-top:14px;line-height:1.75}
+.keys b{color:#fff;margin-right:4px}
+#padHelp.on b{color:var(--gold)}
+.ps{font-style:normal;font-weight:700;display:inline-block;min-width:22px;text-align:center;padding:0 6px;border-radius:999px;background:#0d1230;border:2px solid rgba(255,255,255,.55);color:#fff;font-size:13px;line-height:18px}
+.ps.x{color:#7db4ff}.ps.o{color:#ff6b7a}.ps.t{color:#4fe0b0}.ps.s{color:#ff8fd8}
+.padchip{display:flex;align-items:center;justify-content:center;border-color:var(--go)}
+.padfocus{outline:5px solid var(--gold)!important;outline-offset:4px;transform:scale(1.06)}
 .phone{background:rgba(0,0,0,.25);border-radius:26px;padding:18px;text-align:center}
 .phone h3{margin:0 0 4px;font-size:22px}
 .phone p{margin:0 0 12px;color:var(--dim);font-size:15px;line-height:1.3}
@@ -195,12 +201,13 @@ b,h1,h2,h3{font-weight:700}
   <div id="compass" class="hidden"><div class="dial"><div id="needle"></div></div><div class="lbl" id="compassLbl"></div></div>
   <div id="hudR" class="hidden">
     <div id="signal" class="chip">Signal<span class="bars"><i style="height:6px"></i><i style="height:11px"></i><i style="height:16px"></i><i style="height:22px"></i></span></div>
+    <div class="hbtn padchip hidden" id="padChip" title="Controller connected" aria-label="Controller connected">🎮</div>
     <button class="hbtn" id="bookBtn" title="Sticker book (B)" aria-label="Sticker book">📒</button>
     <button class="hbtn" id="muteBtn" title="Sound on/off (N)" aria-label="Sound on or off">🔊</button>
   </div>
   <div id="coords" class="chip hidden"><span id="coordTxt"></span><small id="hudCtrl">Keyboard: arrows or WASD</small></div>
   <canvas id="mini" class="hidden" width="230" height="150"></canvas>
-  <div id="toast"><span class="ico">⭐</span><span><b>Science star!</b><span id="toastTxt"></span></span></div>
+  <div id="toast"><span class="ico" id="toastIco">⭐</span><span><b id="toastTitle">Science star!</b><span id="toastTxt"></span></span></div>
   <div id="count"></div>
 
   <div id="lobby" class="overlay">
@@ -216,7 +223,11 @@ b,h1,h2,h3{font-weight:700}
         <div class="lab">Paint your rover</div>
         <div class="swatches" id="swatches"></div>
         <button class="btn go" id="kbStart">START ▶</button>
-        <div class="keys">Keyboard: arrows or WASD to drive · Enter to start · B sticker book · M change world · N sound</div>
+        <div class="keys">
+          <div><b>⌨️ Keyboard</b> arrows or WASD drive · Enter start / next · R read aloud · B sticker book · M change world · N sound</div>
+          <div id="padHelp"><b>🎮 Controller</b> <i class="ps">L</i> left stick steer · <i class="ps">R2</i> drive · <i class="ps">L2</i> brake / reverse · <i class="ps x">✕</i> start / next · <i class="ps o">○</i> back · <i class="ps t">△</i> read aloud · <i class="ps s">□</i> sticker book · <i class="ps">OPTIONS</i> change world · <i class="ps">D-pad</i> pick a button</div>
+          <button class="mini hidden" id="lightsBtn" style="margin-top:8px">💡 Connect DualSense lights (optional)</button>
+        </div>
         <div id="fileWarn" class="warn hidden">This page is open as a file, so a phone can't reach it. Put the folder online first (see the README). Keyboard play works fine.</div>
       </div>
       <div class="phone">
@@ -307,7 +318,7 @@ b,h1,h2,h3{font-weight:700}
 (function () {
   const join = new URLSearchParams(location.search).get("join");
   if (join) { startController(join); return; }
-  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/host.js"];
+  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/gamepad.js", "js/host.js"];
   (function next() {
     if (!files.length) { startHost(); return; }
     const s = document.createElement("script"); s.src = files.shift(); s.onload = next;

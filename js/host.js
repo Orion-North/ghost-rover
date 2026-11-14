@@ -387,6 +387,7 @@ function startHost() {
     setupMini();
     document.querySelectorAll(".pick").forEach(b => b.classList.toggle("on", b.dataset.world === k));
     if (mode !== "lobby") Sfx.music(k);
+    padLight();
     updateHud(); sendState();
   }
   function nearestUnfound() {
@@ -411,13 +412,57 @@ function startHost() {
   });
   addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
   addEventListener("pointerdown", () => Sfx.init());
+  // Keyboard, phone and game controller are all read every frame. Whichever one is being used wins:
+  // the strongest steering and the hardest pedal press count, so nobody has to switch anything.
+  let pad = null, ctrlNow = "";
+  function setCtrl(name) { if (name !== ctrlNow) { ctrlNow = name; $("hudCtrl").textContent = "Driving with: " + name; } }
   function input() {
     const live = performance.now() - phone.t < 1200;
     let s = (keys.arrowleft || keys.a ? -1 : 0) + (keys.arrowright || keys.d ? 1 : 0);
-    let g = keys.arrowup || keys.w, r = keys.arrowdown || keys.s;
-    if (live) { if (Math.abs(phone.s) > Math.abs(s)) s = phone.s; g = g || phone.g; r = r || phone.r; }
+    let g = keys.arrowup || keys.w ? 1 : 0, r = keys.arrowdown || keys.s ? 1 : 0;
+    if (s || g || r) setCtrl("⌨️ keyboard");
+    if (live) {
+      if (phone.s || phone.g || phone.r) setCtrl("📱 phone");
+      if (Math.abs(phone.s) > Math.abs(s)) s = phone.s; if (phone.g) g = 1; if (phone.r) r = 1;
+    }
+    if (pad) {
+      if (pad.steer || pad.gas || pad.brake) setCtrl("🎮 controller");
+      if (Math.abs(pad.steer) > Math.abs(s)) s = pad.steer; g = Math.max(g, pad.gas); r = Math.max(r, pad.brake);
+    }
     return { s, g, r };
   }
+
+  // ---- game controller: buttons, menu focus, connect / disconnect messages ----
+  const overlayNow = () => bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : null;
+  let padFocus = null;
+  function moveFocus(dir) {
+    const ov = overlayNow(); if (!ov) return;
+    const list = [...ov.querySelectorAll("button")].filter(b => b.offsetParent !== null); if (!list.length) return;
+    let i = list.indexOf(padFocus); i = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
+    clearFocus(); padFocus = list[i]; padFocus.classList.add("padfocus"); padFocus.scrollIntoView({ block: "nearest" }); Sfx.click();
+  }
+  function clearFocus() { if (padFocus) padFocus.classList.remove("padfocus"); padFocus = null; }
+  function pollPad() {
+    pad = Pad.poll(); $("padChip").classList.toggle("hidden", !pad);
+    if (!pad) return;
+    if (padFocus && (!overlayNow() || !overlayNow().contains(padFocus) || padFocus.offsetParent === null)) clearFocus();
+    for (const b of pad.pressed) {
+      Sfx.init(); setCtrl("🎮 controller");
+      if (b === "cross") { if (padFocus) padFocus.click(); else action("next"); }
+      else if (b === "circle") { if (bookOpen) action("book"); else if (mode === "card") action("next"); clearFocus(); }
+      else if (b === "triangle") action("read");
+      else if (b === "square") action("book");
+      else if (b === "options") action("world");
+      else if (b === "left" || b === "up") moveFocus(-1);
+      else if (b === "right" || b === "down") moveFocus(1);
+    }
+  }
+  addEventListener("gamepadconnected", () => { toast("Controller connected!", "Ready to drive", "🎮"); $("padHelp").classList.add("on"); if (Pad.lights.supported) $("lightsBtn").classList.remove("hidden"); });
+  addEventListener("gamepaddisconnected", () => { toast("Controller disconnected", "Keyboard and phone still work", "🎮"); });
+  // optional extra: match the DualSense lightbar to the planet (Chrome / Edge, USB). The game is the same without it.
+  const padLight = () => Pad.lights.color(...(worldKey === "moon" ? [90, 120, 255] : [255, 90, 10]));
+  $("lightsBtn").onclick = async () => { const ok = await Pad.lights.connect(); if (ok) await padLight(); $("lightsBtn").textContent = ok ? "💡 Lights on" : "💡 Lights not available"; };
+
   function action(a) {
     if (a === "mute") { Sfx.setMuted(!Sfx.muted); store.set("mute", Sfx.muted ? "1" : ""); $("muteBtn").textContent = Sfx.muted ? "🔇" : "🔊"; return; }
     if (a === "book") { if (mode === "play" || bookOpen) toggleBook(); return; }
@@ -546,7 +591,7 @@ function startHost() {
   }
 
   let toastT = 0;
-  function toast(txt) { $("toastTxt").textContent = txt; $("toast").classList.add("show"); toastT = 8; }
+  function toast(txt, title, ico) { $("toastTxt").textContent = txt; $("toastTitle").textContent = title || "Science star!"; $("toastIco").textContent = ico || "⭐"; $("toast").classList.add("show"); toastT = title ? 4 : 8; }
 
   // confetti (drawn on a 2D canvas above the game)
   let conf = [];
@@ -728,7 +773,7 @@ function startHost() {
     });
     peer.on("connection", conn => {
       conn.on("open", () => {
-        conns.add(conn); $("peerStatus").textContent = "📱 Phone connected! Tap START on the phone."; $("hudCtrl").textContent = "📱 Phone connected";
+        conns.add(conn); $("peerStatus").textContent = "📱 Phone connected! Tap START on the phone."; $("hudCtrl").textContent = "📱 Phone connected"; ctrlNow = "";
         sendState(true);
       });
       conn.on("data", d => {
@@ -736,7 +781,7 @@ function startHost() {
         if (d.t === "i") { phone.s = clamp(+d.s || 0, -1, 1); phone.g = !!d.g; phone.r = !!d.r; phone.t = performance.now(); }
         else if (d.t === "a" && ["next", "world", "read", "book"].includes(d.a)) action(d.a);
       });
-      const gone = () => { conns.delete(conn); if (!conns.size) { $("hudCtrl").textContent = "Phone disconnected · keyboard works"; $("peerStatus").textContent = "Phone disconnected. Scan again to rejoin."; } };
+      const gone = () => { conns.delete(conn); if (!conns.size) { $("hudCtrl").textContent = "Phone disconnected · keyboard works"; ctrlNow = ""; $("peerStatus").textContent = "Phone disconnected. Scan again to rejoin."; } };
       conn.on("close", gone); conn.on("error", gone);
     });
     peer.on("disconnected", () => { try { peer.reconnect(); } catch (e) { } });
@@ -755,14 +800,15 @@ function startHost() {
     if (bookOpen) return;
     if (mode === "count") tickCount(dt); else clearCount(dt);
     if (mode === "revive") tickRevive(dt);
-    const playing = mode === "play", inp = playing ? input() : { s: 0, g: false, r: false };
+    const playing = mode === "play", inp = playing ? input() : { s: 0, g: 0, r: 0 };
     const moon = worldKey === "moon";
 
     // --- driving (on the flat map, same as before) ---
     rover.boost = Math.max(0, rover.boost - dt);
     const top = WD.maxV * (rover.boost > 0 ? 1.55 : 1);
     if (playing) {
-      const target = inp.g ? top : inp.r ? -WD.maxV * .45 : 0, acc = target === 0 ? 420 : rover.boost > 0 ? 900 : 360;
+      // pedals are analog: a light squeeze of a trigger drives slowly, a full press drives at full speed
+      const target = inp.g > 0 ? top * inp.g : inp.r > 0 ? -WD.maxV * .45 * inp.r : 0, acc = target === 0 ? 420 : rover.boost > 0 ? 900 : inp.r > 0 && rover.v > 0 ? 360 + 340 * inp.r : 360;
       rover.v += clamp(target - rover.v, -acc * dt, acc * dt);
     } else rover.v *= Math.pow(.02, dt);
     rover.steer = lerp(rover.steer, inp.s, 1 - Math.exp(-10 * dt));
@@ -841,7 +887,7 @@ function startHost() {
       if (starsGot.has(st.id)) continue;
       st.g.position.set(rx(st.x), st.h0 + 20 + Math.sin(time * 2.5 + st.x) * 3, st.y); st.mesh.rotation.y = time * 2.2;
       if (playing && Math.hypot(wdx(st.x - rover.x), st.y - rover.y) < 36) {
-        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([30, 30, 30]); updateHud();
+        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([30, 30, 30]); Pad.rumble("star"); updateHud();
         for (let i = 0; i < 50; i++) { const a = rnd(0, 6.3), b = rnd(-1, 1.4), v = rnd(40, 140); spark.emit(st.g.position.x, st.g.position.y, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.5, 1.1), rnd(4, 8), 1, .85, .3, 1, 120, 1, -4); }
       }
     }
@@ -865,7 +911,7 @@ function startHost() {
         setSignal(bars, km.toLocaleString() + " km");
         $("compassLbl").textContent = "Ghost signal · " + sigDist;
         $("needle").style.transform = "rotate(" + (Math.atan2(n.s.y - rover.y, wdx(n.s.x - rover.x)) - camH) + "rad)";
-        if (bars >= 2 && lastPing !== n.s.id + bars) { lastPing = n.s.id + bars; vibe(bars >= 4 ? [40, 40, 40] : [40]); }
+        if (bars >= 2 && lastPing !== n.s.id + bars) { lastPing = n.s.id + bars; vibe(bars >= 4 ? [40, 40, 40] : [40]); if (bars === 2) Pad.rumble("signal"); }
         beepT -= dt; if (bars > 0 && beepT <= 0) { beepT = clamp(n.d / 1100, .16, 2.4); Sfx.beep(bars / 4); }
       } else { setSignal(0, ""); $("compassLbl").textContent = "All found!"; }
       Sfx.engine(sp / WD.maxV, true);
@@ -887,7 +933,7 @@ function startHost() {
       st.beam.scale.x = st.beam.scale.z = 9 + k * 40; st.core.scale.x = st.core.scale.z = 2.2 + k * 16;
       for (let i = 0; i < 4; i++) { const a = rnd(0, 6.3), d = rnd(40, 90); spark.emit(st.g.position.x + Math.cos(a) * d, st.h0 + rnd(0, 50), st.y + Math.sin(a) * d, -Math.cos(a) * d * 1.4, rnd(0, 20), -Math.sin(a) * d * 1.4, .7, rnd(3, 6), .6, .92, 1, 1, 0, 0, 0); }
       if (r.t >= 1.5) {
-        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); vibe([200]);
+        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); vibe([200]); Pad.rumble("found");
         const f = $("flash"); f.style.transition = "none"; f.style.opacity = .85; requestAnimationFrame(() => { f.style.transition = "opacity .6s"; f.style.opacity = 0; });
         for (let i = 0; i < 160; i++) { const a = rnd(0, 6.3), b = rnd(-.2, 1.6), v = rnd(50, 220); spark.emit(st.g.position.x, st.h0 + 22, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.8, 1.9), rnd(4, 9), 1, rnd(.7, 1), rnd(.2, .6), 1, 110, .8, -3); }
         updateHud();
@@ -953,12 +999,13 @@ function startHost() {
   setWorld("moon");
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
-    rover, found, starsGot, deepSeen, setWorld, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
+    rover, found, starsGot, deepSeen, setWorld, input, pad: () => pad, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer
   };
   let last = performance.now(), slow = 0, frames = 0;
   function frame(now) {
     const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
+    pollPad();
     update(dt);
     if (Math.abs(rover.x - tcx) > 120 || Math.abs(rover.y - tcz) > 120) updateTerrain(Math.round(rover.x / 120) * 120, Math.round(rover.y / 120) * 120);
     dust.update(dt); spark.update(dt);

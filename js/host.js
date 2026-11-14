@@ -42,7 +42,7 @@ function startHost() {
   const rover = { x: 0, y: 0, h: -Math.PI / 2, v: 0, alt: 0, vy: 0, air: false, pitch: 0, roll: 0, steer: 0, boost: 0, gPrev: 0, gVy: 0 };
   let mode = "lobby", bookOpen = false, card = null, cardKind = null, lastPing = -1, countT = 0, countN = -1;
   let revive = null, shake = 0, camH = rover.h, beepT = 0, sig = 0, sigDist = "", time = 0;
-  const keys = {}, phone = { s: 0, g: 0, r: 0, t: 0 };
+  const keys = {};
 
   const toXY = (lat, lon) => [(lon - WD.lonMin) * WD.ppd, (WD.latMax - lat) * WD.ppd];
   const wdx = dx => WD.wrap ? dx - Math.round(dx / W.w) * W.w : dx;   // shortest east-west distance on a wrapped planet
@@ -456,7 +456,7 @@ function startHost() {
     document.querySelectorAll(".pick").forEach(b => b.classList.toggle("on", b.dataset.world === k));
     if (mode !== "lobby") Sfx.music(k);
     padLight(); showClock();
-    updateHud(); sendState();
+    updateHud();
   }
   function nearestUnfound() {
     let best = null, bd = Infinity;
@@ -465,7 +465,7 @@ function startHost() {
   }
 
   // ------------------------------------------------------------------
-  // input and actions (keyboard, on-screen buttons and the phone all end up here)
+  // input and actions (keyboard, game controller and on-screen buttons all end up here)
   // ------------------------------------------------------------------
   // Keyboard. On menus and cards the arrow keys move between buttons and Enter presses the chosen one.
   const GAME_KEYS = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "enter", "escape", "m", "r", "b", "n", "p"]);
@@ -487,7 +487,7 @@ function startHost() {
   });
   addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
   addEventListener("pointerdown", () => Sfx.init());
-  // Keyboard, phone and game controller are all read every frame. Whichever one is being used wins:
+  // Keyboard and game controller are both read every frame. Whichever one is being used wins:
   // the strongest steering and the hardest pedal press count, so nobody has to switch anything.
   let pad = null, ctrlNow = "kb", kbSteer = 0;
   function updateKb(dt) { // keyboard steering eases in over about a third of a second, so it isn't twitchy, and lets go quickly
@@ -502,18 +502,17 @@ function startHost() {
   function startTask(st) {
     if (!Tasks.has(st.id)) { openCard(st, "site"); return; }
     mode = "task"; taskSite = st; rover.v = 0; $("toast").classList.remove("show"); toastT = 0; Tasks.has(st.id) && setTimeout(refreshPrompts, 0);
-    Tasks.start(st.id, { world: worldKey, sfx: n => (taskSfx[n] || (() => { }))(), buzz: k => { Pad.rumble(k); vibe(k === "found" ? [80, 50, 120] : [25]); },
+    Tasks.start(st.id, { world: worldKey, sfx: n => (taskSfx[n] || (() => { }))(), buzz: k => Pad.rumble(k),
       onEnd: ok => {
         taskSite = null;
         if (ok) { tasksDone.add(st.id); addTime(10); toast("Bonus science star for finishing the task! +10s", "Mission task done ✓", "🛠"); }
         openCard(st, "site");
       } });
-    sendState();
+   
   }
   function stepTask(dt) { // the task uses the same controls as driving: steer moves the pointer, drive (or Enter, or Cross) grabs
     const i = input(); taskPulse -= dt;
-    const phoneHold = phone.h && performance.now() - phone.t < 1200; if (phoneHold) setCtrl("phone");
-    Tasks.step(dt, { x: i.s, hold: i.g > 0 || keys.enter || keys[" "] || (pad && pad.down.cross) || phoneHold || taskPulse > 0 });
+    Tasks.step(dt, { x: i.s, hold: i.g > 0 || keys.enter || keys[" "] || (pad && pad.down.cross) || taskPulse > 0 });
   }
 
   // ---- which input is being used: the HUD pill and every on-screen button prompt follow it ----
@@ -523,28 +522,20 @@ function startHost() {
     $("hudCtrl").textContent = "Driving with: " + P.K[k].name;
     document.querySelectorAll(".way").forEach(w => w.classList.toggle("on", w.dataset.way === k));
     set("cardNext", "next"); set("cardRead", "read"); set("reportKeep", "next"); set("kbStart", "next"); set("howClose", "next"); set("pauseResume", "next");
-    set("bookClose", k === "phone" ? "next" : "back"); set("taskSkip", k === "phone" ? "" : "skip");
+    set("bookClose", "back"); set("taskSkip", "skip");
     const html = {
-      card: { pad: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]), kb: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]),
-        phone: "On your phone: " + key("NEXT") + " keep exploring · " + key("🔊") + " read aloud" },
-      task: { pad: key("Left stick") + " move the hand · hold " + key("✕") + " to grab · " + key("○") + " skip", kb: key("←") + " " + key("→") + " move the hand · hold " + key("Enter") + " to grab · " + key("Esc") + " skip",
-        phone: "Tilt to move the hand · hold " + key("NEXT") + " to grab · " + key("Skip") + " on your phone" },
-      report: { pad: P.line(k, [["next", "Keep exploring"]]) + " · " + key("D-pad") + " choose a button", kb: P.line(k, [["next", "Keep exploring"]]) + " · " + key("←") + " " + key("→") + " choose a button",
-        phone: "On your phone: " + key("NEXT") + " keep exploring" },
-      book: { pad: key("○") + " or " + key("□") + " close", kb: key("Esc") + " or " + key("B") + " close", phone: "On your phone: " + key("NEXT") + " close" },
-      pause: { pad: key("✕") + " or " + key("○") + " resume · " + key("D-pad") + " choose", kb: key("Enter") + " or " + key("Esc") + " resume · " + key("←") + " " + key("→") + " choose", phone: "On your phone: " + key("RESUME") }
+      card: { pad: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]), kb: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]) },
+      task: { pad: key("Left stick") + " move the hand · hold " + key("✕") + " to grab · " + key("○") + " skip", kb: key("←") + " " + key("→") + " move the hand · hold " + key("Enter") + " to grab · " + key("Esc") + " skip" },
+      report: { pad: P.line(k, [["next", "Keep exploring"]]) + " · " + key("D-pad") + " choose a button", kb: P.line(k, [["next", "Keep exploring"]]) + " · " + key("←") + " " + key("→") + " choose a button" },
+      book: { pad: key("○") + " or " + key("□") + " close", kb: key("Esc") + " or " + key("B") + " close" },
+      pause: { pad: key("✕") + " or " + key("○") + " resume · " + key("D-pad") + " choose", kb: key("Enter") + " or " + key("Esc") + " resume · " + key("←") + " " + key("→") + " choose" }
     };
     $("cardKeys").innerHTML = html.card[k]; $("reportKeys").innerHTML = html.report[k]; $("bookKeys").innerHTML = html.book[k]; $("pauseKeys").innerHTML = html.pause[k];
     const tk = document.getElementById("taskKeys"); if (tk) tk.innerHTML = html.task[k];
   }
   function input() {
-    const live = performance.now() - phone.t < 1200;
     let s = kbSteer, g = keys.arrowup || keys.w ? 1 : 0, r = keys.arrowdown || keys.s ? 1 : 0;
     if (s || g || r) setCtrl("kb");
-    if (live) {
-      if (phone.s || phone.g || phone.r) setCtrl("phone");
-      if (Math.abs(phone.s) > Math.abs(s)) s = phone.s; if (phone.g) g = 1; if (phone.r) r = 1;
-    }
     if (pad) {
       if (pad.steer || pad.gas || pad.brake) setCtrl("pad");
       if (Math.abs(pad.steer) > Math.abs(s)) s = pad.steer; g = Math.max(g, pad.gas); r = Math.max(r, pad.brake);
@@ -583,7 +574,7 @@ function startHost() {
   });
   addEventListener("gamepaddisconnected", () => {
     $("padStatus").textContent = "Plug in by USB or pair by Bluetooth, then press any button.";
-    if (ctrlNow === "pad") lostInput("🎮 The controller disconnected. Plug it back in, or keep going with the keyboard or a phone.");
+    if (ctrlNow === "pad") lostInput("🎮 The controller disconnected. Plug it back in, or keep going with the keyboard.");
     else toast("Controller disconnected", "", "🎮");
   });
   // An input dropped out mid-game: pause so nobody loses time, and let them carry on with another one.
@@ -598,11 +589,11 @@ function startHost() {
     $("pauseMsg").textContent = msg || ""; $("pauseMsg").classList.toggle("hidden", !msg);
     $("pauseWorld").classList.toggle("hidden", pausePrev !== "play"); $("pauseTitle").classList.toggle("hidden", pausePrev !== "play");
     $("pauseWorld").textContent = worldKey === "moon" ? "Go to Mars 🚀" : "Go to the Moon 🚀"; paintSound();
-    $("pause").classList.remove("hidden"); showClock(); sendState();
+    $("pause").classList.remove("hidden"); showClock();
   }
-  function resume() { $("pause").classList.add("hidden"); clearFocus(); mode = pausePrev; showClock(); sendState(); }
+  function resume() { $("pause").classList.add("hidden"); clearFocus(); mode = pausePrev; showClock(); }
   function paintSound() { $("pauseSound").textContent = Sfx.muted ? "🔇 Sound: Off" : "🔊 Sound: On"; }
-  function toTitle() { resume(); mode = "lobby"; Sfx.music(null); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock(); sendState(); }
+  function toTitle() { resume(); mode = "lobby"; Sfx.music(null); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock(); }
   $("pauseResume").onclick = () => action("next"); $("pauseWorld").onclick = () => action("world"); $("pauseSound").onclick = () => { action("mute"); paintSound(); }; $("pauseTitle").onclick = toTitle;
 
   // ---- How to play (title screen) ----
@@ -622,7 +613,7 @@ function startHost() {
       else if (a === "world" && pausePrev === "play") { resume(); setWorld(worldKey === "moon" ? "mars" : "moon"); beginCount(); }
       return;
     }
-    if (mode === "task") { // a quick tap (phone NEXT, Enter) counts as a short grab
+    if (mode === "task") { // a quick tap of Enter or ✕ counts as a short grab
       if (a === "next") taskPulse = .3; else if (a === "back" || a === "skip") Tasks.skip(); else if (a === "pause") openPause();
       return;
     }
@@ -682,9 +673,9 @@ function startHost() {
   function openReport() {
     mode = "report"; rover.v = 0;
     $("repWorld").textContent = WD.label; $("repGhosts").textContent = sites.filter(s => found.has(s.id)).length + " / " + sites.length; $("repStars").textContent = stars.filter(s => starsGot.has(s.id)).length + " / " + stars.length; const bonus = sites.filter(s => tasksDone.has(s.id)).length; $("repBonus").textContent = bonus ? "+ " + bonus + " task bonus " + (bonus > 1 ? "stars" : "star") : "";
-    $("report").classList.remove("hidden"); showClock(); sendState();
+    $("report").classList.remove("hidden"); showClock();
   }
-  function keepExploring() { clock.free[worldKey] = true; $("report").classList.add("hidden"); mode = "play"; showClock(); sendState(); }
+  function keepExploring() { clock.free[worldKey] = true; $("report").classList.add("hidden"); mode = "play"; showClock(); }
   function tryAgain() { for (const s of sites) { found.delete(s.id); tasksDone.delete(s.id); } for (const s of stars) starsGot.delete(s.id); resetClock(worldKey); $("report").classList.add("hidden"); setWorld(worldKey); beginCount(); }
   $("reportKeep").onclick = keepExploring; $("reportRetry").onclick = tryAgain;
   const tips = new Set(); let bumpT = 0, sandBuzzT = 0;
@@ -699,13 +690,13 @@ function startHost() {
     Sfx.init(); $("lobby").classList.add("hidden"); hudEls.forEach(id => $(id).classList.remove("hidden"));
     Sfx.music(worldKey); beginCount();
   }
-  function beginCount() { mode = "count"; countT = 0; countN = -1; rover.v = 0; $("intro").innerHTML = "<b></b><span></span>"; $("intro").firstChild.textContent = (worldKey === "moon" ? "🌕 " : "🔴 ") + WD.label; $("intro").lastChild.textContent = WD.level; $("intro").classList.add("show"); showClock(); sendState(); }
+  function beginCount() { mode = "count"; countT = 0; countN = -1; rover.v = 0; $("intro").innerHTML = "<b></b><span></span>"; $("intro").firstChild.textContent = (worldKey === "moon" ? "🌕 " : "🔴 ") + WD.label; $("intro").lastChild.textContent = WD.level; $("intro").classList.add("show"); showClock(); }
   function tickCount(dt) {
     countT += dt; const n = Math.floor(countT / .8);
     if (n !== countN) {
       countN = n;
-      if (n < 3) { $("count").innerHTML = "<span>" + (3 - n) + "</span>"; Sfx.count(); vibe([30]); }
-      else if (n === 3) { $("count").innerHTML = "<span style='color:#3ddc6f'>GO!</span>"; Sfx.go(); vibe([120]); mode = "play"; $("intro").classList.remove("show"); sendState(); }
+      if (n < 3) { $("count").innerHTML = "<span>" + (3 - n) + "</span>"; Sfx.count(); }
+      else if (n === 3) { $("count").innerHTML = "<span style='color:#3ddc6f'>GO!</span>"; Sfx.go(); mode = "play"; $("intro").classList.remove("show"); }
     }
   }
   function clearCount(dt) { if (countN >= 3) { countT += dt; if (countT > 3.3) { $("count").innerHTML = ""; countN = -1; } } }
@@ -735,7 +726,7 @@ function startHost() {
     $("card").classList.toggle("deep", kind === "deep" || kind === "end");
     $("cardTag").classList.toggle("hidden", !$("cardTag").textContent);
     Models.thumbShow(site.type, site);
-    $("card").classList.remove("hidden"); $("card").querySelector(".box").scrollTop = 0; sendState();
+    $("card").classList.remove("hidden"); $("card").querySelector(".box").scrollTop = 0;
   }
   // ---- reading pause: the first time a ghost's or deep-space card opens, its main button waits 5 seconds ----
   let cardUnlockAt = 0; const cardSeen = new Set(), CARD_WAIT = 5;
@@ -752,7 +743,7 @@ function startHost() {
     if (mode !== "card") { cardUnlockAt = 0; return; }
     if (left > 0) { b.style.setProperty("--p", 1 - left / CARD_WAIT); const n = b.querySelector(".lk b"); if (n) n.textContent = Math.ceil(left); return; }
     cardUnlockAt = 0; b.disabled = false; const lk = b.querySelector(".lk"); if (lk) lk.remove();
-    b.classList.remove("locked"); void b.offsetWidth; b.classList.add("pop"); Sfx.chime(); sendState(true);
+    b.classList.remove("locked"); void b.offsetWidth; b.classList.add("pop"); Sfx.chime();
   }
   function closeCard() {
     window.speechSynthesis && speechSynthesis.cancel();
@@ -761,7 +752,7 @@ function startHost() {
     if (k === "site") {
       updateHud();
       if (sites.every(s => found.has(s.id))) {
-        confetti(); Sfx.cheer(); vibe([80, 60, 80, 60, 200]);
+        confetti(); Sfx.cheer();
         const scored = clock.on && !clock.free[worldKey]; // the time left is the score
         openCard(Object.assign({}, WORLD_DONE[worldKey], scored ? { wow: "Mission complete with " + fmt(clock.left[worldKey]) + " to spare! ⭐" } : {}), "world"); showClock();
       }
@@ -775,9 +766,9 @@ function startHost() {
       found.clear(); starsGot.clear(); deepSeen.clear(); tasksDone.clear(); resetClock("moon"); resetClock("mars"); mode = "lobby"; Sfx.music(null);
       setWorld("moon"); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock();
     }
-    sendState();
+   
   }
-  function openDeep() { const d = DEEP[deepI]; deepSeen.add(d.id); Sfx.found(); vibe([60, 40, 120]); openCard(d, deepI === DEEP.length - 1 ? "end" : "deep"); }
+  function openDeep() { const d = DEEP[deepI]; deepSeen.add(d.id); Sfx.found(); openCard(d, deepI === DEEP.length - 1 ? "end" : "deep"); }
   function readAloud() {
     if (!card || !window.speechSynthesis) return;
     if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
@@ -811,7 +802,7 @@ function startHost() {
       });
       $("book").querySelector(".box").scrollTop = 0;
     }
-    sendState();
+   
   }
 
   let toastT = 0;
@@ -970,51 +961,14 @@ function startHost() {
   }
 
   // ------------------------------------------------------------------
-  // networking: the laptop is the "host", phones connect to it
+  // the phone QR code opens phone.html: a design preview of a future phone controller.
+  // It doesn't connect to the game or send any input.
   // ------------------------------------------------------------------
-  const conns = new Set();
-  function send(msg) { conns.forEach(c => { try { c.open && c.send(msg); } catch (e) { } }); }
-  function vibe(p) { send({ t: "vibe", p }); }
-  let lastSent = "";
-  function sendState(force) {
-    const st = { t: "state", mode: bookOpen ? "book" : mode, world: WD.short, sig, dist: sigDist, found: sites.filter(s => found.has(s.id)).length, total: sites.length,
-      stars: stars.filter(s => starsGot.has(s.id)).length, card: card ? card.name : "", wait: cardUnlockAt ? Math.max(1, Math.ceil((cardUnlockAt - performance.now()) / 1000)) : 0 };
-    const key = JSON.stringify(st); if (!force && key === lastSent) return; lastSent = key; send(st);
-  }
-  setInterval(() => sendState(true), 1000);
-
   if (location.protocol === "file:") $("fileWarn").classList.remove("hidden");
-  if (window.Peer) {
-    const peer = new Peer("ghostrovers-" + Math.random().toString(36).slice(2, 8));
-    peer.on("open", id => {
-      const url = location.origin + location.pathname + "?join=" + id;
-      const q = qrcode(0, "M"); q.addData(url); q.make();
-      $("qr").innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
-      $("joinUrl").textContent = url; $("peerStatus").textContent = "Waiting for a phone…";
-    });
-    peer.on("connection", conn => {
-      conn.on("open", () => {
-        conns.add(conn); $("peerStatus").textContent = "📱 Phone connected! Tap START on the phone."; setCtrl("phone");
-        sendState(true);
-      });
-      conn.on("data", d => {
-        if (!d || typeof d !== "object") return;
-        if (d.t === "i") { phone.s = clamp(+d.s || 0, -1, 1); phone.g = !!d.g; phone.r = !!d.r; phone.t = performance.now(); }
-        else if (d.t === "h") { phone.h = !!d.h; phone.t = performance.now(); if (phone.h) setCtrl("phone"); } // NEXT held down (grabbing in a task)
-        else if (d.t === "a" && ["next", "world", "read", "book", "skip"].includes(d.a)) { setCtrl("phone"); action(d.a); }
-      });
-      const gone = () => {
-        if (!conns.has(conn)) return; conns.delete(conn); phone.g = phone.r = phone.h = false; phone.s = 0;
-        if (!conns.size) { $("peerStatus").textContent = "Phone disconnected. Scan again to rejoin."; if (ctrlNow === "phone") lostInput("📱 The phone disconnected. Scan the code again, or keep going with the keyboard or a controller."); }
-      };
-      conn.on("close", gone); conn.on("error", gone);
-    });
-    peer.on("disconnected", () => { try { peer.reconnect(); } catch (e) { } });
-    peer.on("error", e => { $("peerStatus").textContent = "Phone link isn't available right now (" + (e.type || e.message) + "). The controller and keyboard work."; });
-  } else {
-    $("qr").textContent = "Couldn't load the phone link. The controller and keyboard work.";
-    $("peerStatus").textContent = "";
-  }
+  const phoneUrl = new URL("phone.html", location.href).href;
+  try { const q = qrcode(0, "M"); q.addData(phoneUrl); q.make(); $("qr").innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); }
+  catch (e) { $("qr").textContent = "Couldn't make the code."; }
+  $("joinUrl").textContent = phoneUrl;
 
   // ------------------------------------------------------------------
   // game update
@@ -1051,12 +1005,12 @@ function startHost() {
       rover.x = o.x + nx * min; rover.y = o.z + nz * min;
       if (Math.abs(rover.v) > 70 && headOn > .2) {
         rover.v = o.kind !== "mesa" && headOn > .6 ? -rover.v * .35 : rover.v * .75; // a small bounce straight back, or a glancing slide. No damage.
-        if (bumpT <= 0) { bumpT = .35; shake = Math.max(shake, .4); Sfx.bump(.35); vibe([20]); Pad.rumble("bump"); bodyVel += 12; }
+        if (bumpT <= 0) { bumpT = .35; shake = Math.max(shake, .4); Sfx.bump(.35); Pad.rumble("bump"); bodyVel += 12; }
         if (o.kind === "crater") tip("crater", "This crater's rim is too steep to climb. Find the gentle way around!");
       }
     }
     for (const sd of sands) if (Math.hypot(rover.x - sd.x, rover.y - sd.z) < sd.r) { rover.sand = true; tip("sand", "Careful! Spirit the rover got stuck in soft sand like this in 2009."); }
-    sandBuzzT -= dt; if (rover.sand && Math.abs(rover.v) > 20 && sandBuzzT <= 0) { sandBuzzT = .7; Pad.rumble("sand"); vibe([450]); } // long low rumble in soft sand
+    sandBuzzT -= dt; if (rover.sand && Math.abs(rover.v) > 20 && sandBuzzT <= 0) { sandBuzzT = .7; Pad.rumble("sand"); } // long low rumble in soft sand
 
     const c = Math.cos(rover.h), s = Math.sin(rover.h), sp = Math.abs(rover.v);
     // --- up and down: follow the ground, and float after bumps (low gravity!) ---
@@ -1069,7 +1023,7 @@ function startHost() {
       rover.vy -= WD.gravity * dt; rover.alt += rover.vy * dt;
       if (rover.alt <= ground) {
         const hit = Math.max(0, gVy - rover.vy); rover.alt = ground; rover.air = false; bodyVel -= hit * .35;
-        if (hit > 30) { shake = Math.max(shake, Math.min(1, hit / 130)); Sfx.bump(hit / 150); vibe([25]); for (let i = 0; i < 24; i++) puff(rnd(-14, 14), rnd(-12, 12), 1.6); }
+        if (hit > 30) { shake = Math.max(shake, Math.min(1, hit / 130)); Sfx.bump(hit / 150); for (let i = 0; i < 24; i++) puff(rnd(-14, 14), rnd(-12, 12), 1.6); }
       }
     }
     rover.gVy = gVy;
@@ -1123,7 +1077,7 @@ function startHost() {
       if (starsGot.has(st.id)) continue;
       st.g.position.set(rx(st.x), st.h0 + 20 + Math.sin(time * 2.5 + st.x) * 3, st.y); st.mesh.rotation.y = time * 2.2;
       if (playing && Math.hypot(wdx(st.x - rover.x), st.y - rover.y) < 36) {
-        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([15]); Pad.rumble("star"); addTime(10); updateHud();
+        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); Pad.rumble("star"); addTime(10); updateHud();
         for (let i = 0; i < 50; i++) { const a = rnd(0, 6.3), b = rnd(-1, 1.4), v = rnd(40, 140); spark.emit(st.g.position.x, st.g.position.y, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.5, 1.1), rnd(4, 8), 1, .85, .3, 1, 120, 1, -4); }
       }
     }
@@ -1152,20 +1106,20 @@ function startHost() {
         setSignal(bars, km.toLocaleString() + " km");
         $("compassLbl").textContent = "Ghost signal · " + sigDist;
         $("needle").style.transform = "rotate(" + (Math.atan2(n.s.y - rover.y, wdx(n.s.x - rover.x)) - camH) + "rad)";
-        if (bars >= 2 && lastPing !== n.s.id + bars) { lastPing = n.s.id + bars; vibe(bars >= 4 ? [40, 40, 40] : [40]); if (bars === 2) Pad.rumble("signal"); }
+        if (bars >= 2 && lastPing !== n.s.id + bars) { lastPing = n.s.id + bars; if (bars === 2) Pad.rumble("signal"); }
         beepT -= dt; if (bars > 0 && beepT <= 0) { beepT = clamp(n.d / 1100, .16, 2.4); Sfx.beep(bars / 4); }
       } else { setSignal(0, ""); $("compassLbl").textContent = "All found!"; }
       Sfx.engine(sp / WD.maxV, true);
       const lat = WD.latMax - rover.y / WD.ppd, lon = WD.lonMin + (((rover.x % W.w) + W.w) % W.w) / WD.ppd;
       $("coordTxt").textContent = `📍 ${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}  ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
     } else Sfx.engine(0, false);
-    sendState();
+   
   }
 
   // waking a ghost: shake, flash, pop into full colour, then show its story
   function startRevive(st) {
     mode = "revive"; rover.v = 0; revive = { s: st, t: 0, popped: false, a0: Math.atan2(rover.y - st.y, wdx(rover.x - st.x)) }; found.add(st.id);
-    Sfx.wake(); vibe([60, 40, 120]); sendState();
+    Sfx.wake();
   }
   function tickRevive(dt) {
     const r = revive, st = r.s; r.t += dt;
@@ -1174,7 +1128,7 @@ function startHost() {
       st.beam.scale.x = st.beam.scale.z = 9 + k * 40; st.core.scale.x = st.core.scale.z = 2.2 + k * 16;
       for (let i = 0; i < 4; i++) { const a = rnd(0, 6.3), d = rnd(40, 90); spark.emit(st.g.position.x + Math.cos(a) * d, st.h0 + rnd(0, 50), st.y + Math.sin(a) * d, -Math.cos(a) * d * 1.4, rnd(0, 20), -Math.sin(a) * d * 1.4, .7, rnd(3, 6), .6, .92, 1, 1, 0, 0, 0); }
       if (r.t >= 1.5) {
-        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); vibe([120, 80, 120]); Pad.rumble("found");
+        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); Pad.rumble("found");
         const f = $("flash"); f.style.transition = "none"; f.style.opacity = .85; requestAnimationFrame(() => { f.style.transition = "opacity .6s"; f.style.opacity = 0; });
         for (let i = 0; i < 160; i++) { const a = rnd(0, 6.3), b = rnd(-.2, 1.6), v = rnd(50, 220); spark.emit(st.g.position.x, st.h0 + 22, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.8, 1.9), rnd(4, 9), 1, rnd(.7, 1), rnd(.2, .6), 1, 110, .8, -3); }
         updateHud();

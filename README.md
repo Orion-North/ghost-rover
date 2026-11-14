@@ -1,6 +1,6 @@
 # Ghost Rovers
 
-A game for the NASA Space Apps 2026 challenge "Abandoned but not Forgotten." The laptop shows a 3D rover racing across the Moon or Mars, and a phone becomes the steering wheel. Kids follow signal beams to the real landing sites of machines NASA left behind, wake each one up, and hear its story.
+A game for the NASA Space Apps 2026 challenge "Abandoned but not Forgotten." The laptop shows a 3D rover racing across the Moon or Mars, driven with a game controller (like a PlayStation DualSense) or the keyboard. Kids follow signal beams to the real landing sites of machines NASA left behind, wake each one up, and hear its story.
 
 ## What's in the folder
 
@@ -9,9 +9,9 @@ A game for the NASA Space Apps 2026 challenge "Abandoned but not Forgotten." The
 | `index.html` | The page, its layout and its colours |
 | `js/data.js` | **All the stories, facts and coordinates. Edit this to rewrite the text.** |
 | `js/host.js` | The 3D game on the laptop |
-| `js/controller.js` | The phone steering wheel |
 | `js/gamepad.js` | Game controller (DualSense) support |
-| `js/prompts.js` | The on-screen button hints for phone, controller and keyboard |
+| `js/prompts.js` | The on-screen button hints for the controller and keyboard |
+| `phone.html` | A design preview of a future phone controller (the title screen's QR code opens it). It doesn't control the game. |
 | `tests/gamepad.test.js` | Tests for the controller code, using a fake controller. Run with `node tests/gamepad.test.js` |
 | `js/models.js` | The rover and the ghost machines, built from simple shapes |
 | `js/audio.js` | Music and sound effects, made by code |
@@ -19,12 +19,12 @@ A game for the NASA Space Apps 2026 challenge "Abandoned but not Forgotten." The
 
 Keep the folders together. The game needs all of them.
 
-## Run it so a phone can join
+## Put it online
 
-The phone needs a real web address (https). Pick one:
+Pick one:
 
 **GitHub Pages**
-1. Make a new public repo and upload everything in this folder (`index.html`, `js/`, `lib/`).
+1. Make a new public repo and upload everything in this folder (`index.html`, `phone.html`, `js/`, `lib/`).
 2. Settings → Pages → Source: "Deploy from a branch", branch `main`, folder `/ (root)`.
 3. Wait about a minute, then open `https://<your-username>.github.io/<repo-name>/`.
 
@@ -32,34 +32,32 @@ The phone needs a real web address (https). Pick one:
 1. Go to app.netlify.com/drop and drag this folder onto the page.
 2. Open the https link it gives you.
 
-Then open the link on the laptop and scan the QR code with a phone. The phone and laptop don't need to be on the same Wi-Fi.
-
-You can also just double-click `index.html` to play with the keyboard (no phone).
+You can also double-click `index.html` to play straight from the folder. The phone preview's QR code only works when the game is online.
 
 ## Controls
 
-Ghost Rovers can be played three equal ways. Use whichever you have, and switch any time just by using another one. The pill in the bottom-left corner shows what you're driving with, and every button hint on screen changes to match it.
+Drive with a game controller or the keyboard, and switch any time just by using the other one. The pill in the bottom-left corner shows what you're driving with, and every button hint on screen changes to match it.
 
-| | 📱 Phone | 🎮 Controller (DualSense or similar) | ⌨️ Keyboard |
-| --- | --- | --- | --- |
-| Start | Scan the QR code, tap START | ✕ | Enter |
-| Steer | Tilt the phone | Left stick | ← → or A D (eases in smoothly) |
-| Drive | Hold DRIVE | R2 (press harder to go faster) | ↑ or W |
-| Brake and reverse | Hold BACK | L2 | ↓ or S |
-| Next / Keep exploring | NEXT | ✕ | Enter or Space |
-| Back / close | NEXT | ○ | Esc |
-| Read aloud | 🔊 | △ | R |
-| Sticker book | 📒 Stickers | □ | B |
-| Pause | (use the big screen) | Options | P |
-| Mission tasks | Tilt to move, hold NEXT (GRAB) to grab, Skip button | Stick to move, hold ✕ to grab, ○ to skip | ← → to move, hold Enter to grab, Esc to skip |
-| Choose a menu button | Tap it | D-pad | ← → on menus |
+| | 🎮 Controller (DualSense or similar) | ⌨️ Keyboard |
+| --- | --- | --- |
+| Start | ✕ | Enter |
+| Steer | Left stick | ← → or A D (eases in smoothly) |
+| Drive | R2 (press harder to go faster) | ↑ or W |
+| Brake and reverse | L2 | ↓ or S |
+| Next / Keep exploring | ✕ | Enter or Space |
+| Back / close | ○ | Esc |
+| Read aloud | △ | R |
+| Sticker book | □ | B |
+| Pause | Options | P |
+| Mission tasks | Stick to move, hold ✕ to grab, ○ to skip | ← → to move, hold Enter to grab, Esc to skip |
+| Choose a menu button | D-pad | ← → on menus |
 
-- **Phone:** hold it sideways like a steering wheel. "Re-center" resets straight ahead, "Flip steering" fixes steering that goes the wrong way, and "Tilt: on/off" switches to arrow buttons. Moon ⇄ Mars switches world.
 - **Controller:** plug in by USB or pair by Bluetooth, then press any button so the browser notices it. Xbox and other controllers work too, with the same button positions. On Chrome and Edge an optional button can match a DualSense lightbar to the planet.
 - **Keyboard:** M switches between the Moon and Mars, N turns the sound on or off.
-- **Rumble:** the controller (where the browser supports it) and Android phones buzz: a soft pulse at 2 signal bars, a double pulse when a ghost is found or a task is done, a bump on boulders and crater rims, a long low rumble in soft sand, and a tiny tick for science stars. iPhones don't let web pages vibrate.
-- **If an input drops out** (a phone disconnects or a controller is unplugged) while you're driving with it, the game pauses and says so. Carry on with any other input.
+- **Rumble** (controller, where the browser supports it): a soft pulse at 2 signal bars, a double pulse when a ghost is found or a task is done, a bump on boulders and crater rims, a long low rumble in soft sand, and a tiny tick for science stars.
+- **If the controller is unplugged** while you're driving with it, the game pauses and says so. Carry on with the keyboard or plug it back in.
 - Story cards wait 5 seconds before "Keep exploring" can be used, so there's time to read. Read aloud works straight away.
+- **📱 Phone (design preview):** the QR code on the title screen opens `phone.html`, an early look at a future phone controller. It doesn't connect to the game or send any input yet.
 
 ## How to play
 
@@ -110,14 +108,9 @@ All text and coordinates live in `js/data.js`. Each machine has `wow` (the one-l
 
 **Check every fact against a NASA source before judging.** The Voyager 1 one-light-day date (November 18, 2026) was checked against news reports of the mission team's figure in November 2026. The other facts were reviewed from memory by the AI assistant and none were changed, but they have not been checked line by line against NASA pages.
 
-## How the phone link works
-
-The laptop and phone connect directly using WebRTC through PeerJS. PeerJS's free public server only helps them find each other. If it ever fails, the keyboard still works.
-
 ## Credits and licences
 
 - [three.js](https://threejs.org) r149, MIT licence (3D graphics)
-- [PeerJS](https://peerjs.com) 1.5.5, MIT licence (phone link)
 - [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 1.4.4 by Kazuhiko Arase, MIT licence (QR code)
 - [Fredoka](https://fonts.google.com/specimen/Fredoka) font, SIL Open Font Licence 1.1
 - Music, sound effects, 3D models, the Earth picture and all textures are generated by the code in this folder. There are no downloaded audio, image or model files.

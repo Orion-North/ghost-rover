@@ -67,7 +67,31 @@ b,h1,h2,h3{font-weight:700}
 
 /* title screen */
 #lobby{background:linear-gradient(180deg,rgba(10,12,34,.25),rgba(10,12,34,.6))}
-#lobby .box{display:grid;grid-template-columns:1.35fr 1fr;gap:30px;align-items:center}
+#lobby .lobbybox{display:block;max-width:1100px;padding:20px 28px}
+.ltop{display:grid;grid-template-columns:1fr 1.1fr;gap:26px;align-items:center}
+.ltop .logo{font-size:60px} .ltop .sub{margin:10px 0 0;font-size:17px}
+.ltop .lab{margin:4px 0 6px}
+.lrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.lrow .btn{font-size:17px;padding:10px 18px} #lobby .lrow .go{font-size:21px;padding:11px 24px}
+.waylab{text-align:center;margin:16px 0 8px}
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.way{background:rgba(0,0,0,.25);border:4px solid rgba(255,255,255,.18);border-radius:26px;padding:12px 14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;transition:border-color .2s,transform .2s,box-shadow .2s}
+.way.on{border-color:var(--gold);box-shadow:0 0 0 4px rgba(255,210,63,.25);transform:translateY(-3px)}
+.way h3{margin:0;font-size:22px}
+.wayart{height:150px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.wayart svg{height:118px}
+.way .cta{font-size:19px} .waynote{color:var(--dim);font-size:14px;line-height:1.3;min-height:2.6em}
+.keycaps{display:grid;grid-template-columns:repeat(3,44px);gap:6px} .keycaps.wide{grid-template-columns:150px}
+.keycaps i{font-style:normal;font-weight:700;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:#eef1fb;color:#141a3c;box-shadow:0 4px 0 #8f97c2}
+.keycaps i:empty{background:none;box-shadow:none}
+.howtab{width:100%;border-collapse:separate;border-spacing:0 6px;font-size:16px}
+.howtab th{text-align:left;color:var(--gold);font-size:17px;padding:0 10px}
+.howtab td{background:rgba(0,0,0,.22);padding:7px 10px;line-height:1.5} .howtab td:first-child{font-weight:700;border-radius:12px 0 0 12px} .howtab td:last-child{border-radius:0 12px 12px 0}
+.pausebtns{display:flex;flex-direction:column;gap:12px;align-items:stretch;max-width:340px;margin:0 auto}
+#pause{z-index:13} #howto{z-index:12}
+.hint .ps,.btn .ps{font-size:12px}
+.btn[data-key]::after{content:attr(data-key);display:inline-block;margin-left:10px;padding:0 7px;min-width:18px;border-radius:999px;background:rgba(13,18,48,.8);color:#fff;font-size:12px;line-height:20px;vertical-align:2px;border:2px solid rgba(255,255,255,.6)}
+.btn[data-key=""]::after{display:none}
 .logo{font-size:74px;line-height:.9;margin:0 0 8px;letter-spacing:1px;color:#fff;-webkit-text-stroke:10px #141a3c;paint-order:stroke fill;text-shadow:0 8px 0 #141a3c;transform:rotate(-3deg)}
 .logo span{color:var(--ghost)} .logo em{font-style:normal;color:var(--gold)}
 .sub{color:var(--dim);font-size:19px;margin:14px 0 16px;line-height:1.35}
@@ -96,9 +120,9 @@ b,h1,h2,h3{font-weight:700}
 .phone{background:rgba(0,0,0,.25);border-radius:26px;padding:18px;text-align:center}
 .phone h3{margin:0 0 4px;font-size:22px}
 .phone p{margin:0 0 12px;color:var(--dim);font-size:15px;line-height:1.3}
-#qr{background:#fff;border-radius:18px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:220px;color:#333;font-size:15px}
-#qr svg{width:100%;height:auto;max-width:250px;display:block}
-#joinUrl{font-size:11px;color:var(--dim);word-break:break-all;margin-top:8px}
+#qr{background:#fff;border-radius:16px;padding:8px;display:flex;align-items:center;justify-content:center;width:150px;height:150px;color:#333;font-size:13px}
+#qr svg{width:100%;height:100%;display:block}
+#joinUrl{font-size:10px;color:var(--dim);word-break:break-all;margin-top:0}
 #peerStatus{margin-top:8px;font-size:16px;font-weight:700}
 .warn{background:#5a3a08;border:2px solid #ffb84a;color:#ffe2ae;border-radius:14px;padding:10px 12px;font-size:14px;margin-top:14px}
 
@@ -215,7 +239,7 @@ b,h1,h2,h3{font-weight:700}
   #bGo{order:3}
 }
 @media (max-width:900px){
-  #lobby .box,#card .box{grid-template-columns:1fr}
+  #lobby .box,#card .box,.ltop,.ways{grid-template-columns:1fr}
   .logo{font-size:52px}
 }
 @media (max-height:760px){
@@ -247,38 +271,91 @@ b,h1,h2,h3{font-weight:700}
     <button class="hbtn" id="bookBtn" title="Sticker book (B)" aria-label="Sticker book">📒</button>
     <button class="hbtn" id="muteBtn" title="Sound on/off (N)" aria-label="Sound on or off">🔊</button>
   </div>
-  <div id="coords" class="chip hidden"><span id="coordTxt"></span><small id="hudCtrl">Keyboard: arrows or WASD</small></div>
+  <div id="coords" class="chip hidden"><span id="coordTxt"></span><small id="hudCtrl">Driving with: ⌨️ keyboard</small></div>
   <canvas id="mini" class="hidden" width="230" height="150"></canvas>
   <div id="toast"><span class="ico" id="toastIco">⭐</span><span><b id="toastTitle">Science star!</b><span id="toastTxt"></span></span></div>
   <div id="count"></div>
 
   <div id="lobby" class="overlay">
-    <div class="box">
-      <div>
-        <h1 class="logo">Ghost<br><span>Rov</span><em>ers</em></h1>
-        <p class="sub">Abandoned but not forgotten. Race across the real Moon and Mars, follow the signals, and wake up the machines we left behind.</p>
-        <div class="lab">Pick your world</div>
-        <div class="picks">
-          <button class="pick on" data-world="moon"><i class="planet moon"></i><span>Moon<small></small></span></button>
-          <button class="pick" data-world="mars"><i class="planet mars"></i><span>Mars<small></small></span></button>
+    <div class="box lobbybox">
+      <div class="ltop">
+        <div>
+          <h1 class="logo">Ghost<br><span>Rov</span><em>ers</em></h1>
+          <p class="sub">Abandoned but not forgotten. Race across the real Moon and Mars, follow the signals, and wake up the machines we left behind.</p>
         </div>
-        <div class="lab">Paint your rover</div>
-        <div class="swatches" id="swatches"></div>
-        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:22px"><button class="btn go" id="kbStart">START ▶</button><button class="btn alt" id="timerBtn" title="Turn the mission timer on or off">⏱ Timer: On</button></div>
-        <div class="keys">
-          <div><b>⌨️ Keyboard</b> arrows or WASD drive · Enter start / next · R read aloud · B sticker book · M change world · N sound</div>
-          <div id="padHelp"><b>🎮 Controller</b> <i class="ps">L</i> left stick steer · <i class="ps">R2</i> drive · <i class="ps">L2</i> brake / reverse · <i class="ps x">✕</i> start / next · <i class="ps o">○</i> back · <i class="ps t">△</i> read aloud · <i class="ps s">□</i> sticker book · <i class="ps">OPTIONS</i> change world · <i class="ps">D-pad</i> pick a button</div>
-          <button class="mini hidden" id="lightsBtn" style="margin-top:8px">💡 Connect DualSense lights (optional)</button>
+        <div>
+          <div class="lab">Pick your world</div>
+          <div class="picks">
+            <button class="pick on" data-world="moon"><i class="planet moon"></i><span>Moon<small></small></span></button>
+            <button class="pick" data-world="mars"><i class="planet mars"></i><span>Mars<small></small></span></button>
+          </div>
+          <div class="lab">Paint your rover</div>
+          <div class="swatches" id="swatches"></div>
+          <div class="lrow"><button class="btn go" id="kbStart">START ▶</button><button class="btn alt" id="timerBtn" title="Turn the mission timer on or off">⏱ Timer: On</button><button class="btn alt" id="howBtn">❓ How to play</button></div>
         </div>
-        <div id="fileWarn" class="warn hidden">This page is open as a file, so a phone can't reach it. Put the folder online first (see the README). Keyboard play works fine.</div>
       </div>
-      <div class="phone">
-        <h3>📱 Phone steering wheel</h3>
-        <p>Scan this with a phone, then hold it sideways and tilt to steer.</p>
-        <div id="qr">Getting a code…</div>
-        <div id="joinUrl"></div>
-        <div id="peerStatus">Connecting…</div>
+      <div class="lab waylab">Choose how to drive. All three work, and you can switch any time.</div>
+      <div class="ways">
+        <div class="way" data-way="phone">
+          <h3>📱 Phone</h3>
+          <div class="wayart"><div id="qr">Getting a code…</div></div>
+          <b class="cta">Scan to drive</b>
+          <div class="waynote" id="peerStatus">Connecting…</div>
+          <div id="joinUrl"></div>
+        </div>
+        <div class="way" data-way="pad">
+          <h3>🎮 Controller</h3>
+          <div class="wayart"><svg viewBox="0 0 200 120" aria-hidden="true"><path d="M52 22h96c26 0 40 20 46 52 5 26-6 40-20 40-12 0-18-10-28-24H54c-10 14-16 24-28 24-14 0-25-14-20-40C12 42 26 22 52 22z" fill="#eef1fb" stroke="#141a3c" stroke-width="6" stroke-linejoin="round"/><circle cx="62" cy="58" r="16" fill="#3a4180"/><path d="M56 58h12M62 52v12" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="148" cy="42" r="8" fill="#4fe0b0" stroke="#141a3c" stroke-width="3"/><circle cx="148" cy="74" r="8" fill="#7db4ff" stroke="#141a3c" stroke-width="3"/><circle cx="132" cy="58" r="8" fill="#ff8fd8" stroke="#141a3c" stroke-width="3"/><circle cx="164" cy="58" r="8" fill="#ff6b7a" stroke="#141a3c" stroke-width="3"/><circle cx="82" cy="88" r="11" fill="#3a4180"/><circle cx="118" cy="88" r="11" fill="#3a4180"/></svg></div>
+          <b class="cta">Press <i class="ps x">✕</i> to start</b>
+          <div class="waynote" id="padStatus">Plug in by USB or pair by Bluetooth, then press any button.</div>
+          <button class="mini hidden" id="lightsBtn">💡 Match the lightbar (optional)</button>
+        </div>
+        <div class="way" data-way="kb">
+          <h3>⌨️ Keyboard</h3>
+          <div class="wayart"><div class="keycaps"><i></i><i>↑</i><i></i><i>←</i><i>↓</i><i>→</i></div><div class="keycaps wide"><i>Enter</i></div></div>
+          <b class="cta">Press <i class="ps">Enter</i> to start</b>
+          <div class="waynote">Arrows or WASD to drive.</div>
+        </div>
       </div>
+      <div id="fileWarn" class="warn hidden">This page is open as a file, so a phone can't reach it. Put the folder online first (see the README). Controller and keyboard play work fine.</div>
+    </div>
+  </div>
+
+  <div id="howto" class="overlay hidden">
+    <div class="box" style="max-width:900px">
+      <h2 style="font-size:40px;margin:0 0 6px">❓ How to play</h2>
+      <p class="sub" style="margin:0 0 14px">Drive to the glowing beams, wake up each machine, and hear its story. Use any of these, and switch whenever you like.</p>
+      <table class="howtab">
+        <thead><tr><th></th><th>📱 Phone</th><th>🎮 Controller</th><th>⌨️ Keyboard</th></tr></thead>
+        <tbody>
+          <tr><td>Steer</td><td>Tilt the phone</td><td><i class="ps">Left stick</i></td><td><i class="ps">←</i> <i class="ps">→</i> or <i class="ps">A</i> <i class="ps">D</i></td></tr>
+          <tr><td>Drive</td><td>Hold DRIVE</td><td><i class="ps">R2</i> (press harder to go faster)</td><td><i class="ps">↑</i> or <i class="ps">W</i></td></tr>
+          <tr><td>Brake and reverse</td><td>Hold BACK</td><td><i class="ps">L2</i></td><td><i class="ps">↓</i> or <i class="ps">S</i></td></tr>
+          <tr><td>Next / Keep exploring</td><td>NEXT</td><td><i class="ps x">✕</i></td><td><i class="ps">Enter</i> or <i class="ps">Space</i></td></tr>
+          <tr><td>Back / close</td><td>NEXT</td><td><i class="ps o">○</i></td><td><i class="ps">Esc</i></td></tr>
+          <tr><td>Read aloud</td><td>🔊</td><td><i class="ps t">△</i></td><td><i class="ps">R</i></td></tr>
+          <tr><td>Sticker book</td><td>📒 Stickers</td><td><i class="ps s">□</i></td><td><i class="ps">B</i></td></tr>
+          <tr><td>Pause</td><td>(use the big screen)</td><td><i class="ps">OPTIONS</i></td><td><i class="ps">P</i></td></tr>
+          <tr><td>Mission tasks</td><td>Tilt to move · hold NEXT to grab · Skip</td><td>Stick to move · hold <i class="ps x">✕</i> to grab · <i class="ps o">○</i> skip</td><td><i class="ps">←</i> <i class="ps">→</i> to move · hold <i class="ps">Enter</i> to grab · <i class="ps">Esc</i> skip</td></tr>
+          <tr><td>Choose a button</td><td>Tap it</td><td><i class="ps">D-pad</i></td><td><i class="ps">←</i> <i class="ps">→</i> on menus</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:18px"><button class="btn go" id="howClose">Got it ▶</button></div>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="box" style="max-width:560px;text-align:center">
+      <h2 style="font-size:46px;margin:0 0 6px">⏸ Paused</h2>
+      <p class="sub hidden" id="pauseMsg" style="margin:0 0 10px"></p>
+      <p class="sub" style="margin:0 0 18px">The timer is stopped. Take your time!</p>
+      <div class="pausebtns">
+        <button class="btn go" id="pauseResume">Resume ▶</button>
+        <button class="btn alt" id="pauseWorld">Go to Mars 🚀</button>
+        <button class="btn alt" id="pauseSound">🔊 Sound: On</button>
+        <button class="btn alt" id="pauseTitle">🏠 Title screen</button>
+      </div>
+      <p class="hint" id="pauseKeys" style="margin:16px 0 0"></p>
     </div>
   </div>
 
@@ -299,7 +376,7 @@ b,h1,h2,h3{font-weight:700}
         <div class="actions">
           <button class="btn go" id="cardNext">Keep exploring ▶</button>
           <button class="btn alt" id="cardRead">🔊 Read aloud</button>
-          <span class="hint">Phone: tap NEXT · Keyboard: Enter, R to read</span>
+          <span class="hint" id="cardKeys"></span>
         </div>
       </div>
     </div>
@@ -316,6 +393,7 @@ b,h1,h2,h3{font-weight:700}
         <button class="btn alt" id="reportRetry">Try again ↺</button>
       </div>
       <p style="color:var(--dim);font-size:14px;margin:16px 0 0">Keep exploring carries on with no timer, so you can still finish the story.</p>
+      <p class="hint" id="reportKeys" style="margin:8px 0 0"></p>
     </div>
   </div>
 
@@ -325,7 +403,7 @@ b,h1,h2,h3{font-weight:700}
       <div id="bookBody"></div>
       <h3>Science stars</h3>
       <ul id="bookFacts"></ul>
-      <div style="margin-top:20px"><button class="btn go" id="bookClose">Back to driving ▶</button></div>
+      <div style="margin-top:20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button class="btn go" id="bookClose">Back to driving ▶</button><span class="hint" id="bookKeys"></span></div>
     </div>
   </div>
 </div>
@@ -356,6 +434,7 @@ b,h1,h2,h3{font-weight:700}
         <button class="mini" id="bFlip">Flip steering</button>
         <button class="mini" id="bTilt">Tilt: on</button>
         <button class="mini hidden" id="bRead">🔊 Read</button>
+        <button class="mini hidden" id="bSkip">Skip ⏭</button>
         <button class="mini" id="bBook">📒 Stickers</button>
         <button class="mini" id="bWorld">Moon ⇄ Mars</button>
       </div>
@@ -376,7 +455,7 @@ b,h1,h2,h3{font-weight:700}
   if (join) { startController(join); return; }
   const tasks = ["apollo11-land-eagle", "apollo17-fix-fender", "spirit-broken-wheel", "ingenuity-first-flight", "surveyor3-soft-landing", "apollo14-laser-mirror", "apollo15-unfold-rover",
     "apollo16-grand-prix", "viking1-feed-lab", "viking2-focus-camera", "sojourner-roll-out", "opportunity-catch-wind", "phoenix-dig-ice", "insight-seismometer"]; // one file per mission task
-  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/gamepad.js", "js/minigames/core.js"].concat(tasks.map(t => "js/minigames/" + t + ".js"), ["js/host.js"]);
+  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/gamepad.js", "js/prompts.js", "js/minigames/core.js"].concat(tasks.map(t => "js/minigames/" + t + ".js"), ["js/host.js"]);
   (function next() {
     if (!files.length) { startHost(); return; }
     const s = document.createElement("script"); s.src = files.shift(); s.onload = next;

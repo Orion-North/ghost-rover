@@ -86,7 +86,7 @@ const Tasks = (() => {
   function build() {
     if (el) return;
     el = document.createElement("div"); el.id = "task"; el.className = "overlay hidden";
-    el.innerHTML = '<div class="box taskbox"><div class="taskhead"><div><div class="kicker">🛠 Mission task</div><h2 id="taskTitle"></h2><p id="taskHint"></p></div><button class="btn alt" id="taskSkip">Skip ▶</button></div>' +
+    el.innerHTML = '<div class="box taskbox"><div class="taskhead"><div><div class="kicker">🛠 Mission task</div><h2 id="taskTitle"></h2><p id="taskHint"></p><p class="hint" id="taskKeys"></p></div><button class="btn alt" id="taskSkip">Skip ▶</button></div>' +
       '<div class="taskstage"><canvas id="taskCv"></canvas><div id="taskStamp">MISSION TASK DONE ✓</div></div><div class="taskbar"><i id="taskFill"></i></div></div>';
     document.getElementById("hostView").appendChild(el);
     const cv = el.querySelector("#taskCv"); cv.width = W * 2; cv.height = H * 2; g = cv.getContext("2d");

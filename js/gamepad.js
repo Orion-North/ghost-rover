@@ -41,8 +41,10 @@ const Pad = (() => {
   const EFFECTS = {
     signal: [{ at: 0, ms: 110, weak: .35, strong: .12 }],                                   // soft short pulse
     found: [{ at: 0, ms: 170, weak: .8, strong: 1 }, { at: 280, ms: 220, weak: .8, strong: 1 }], // stronger double pulse
-    star: [{ at: 0, ms: 55, weak: .45, strong: 0 }],
-    bump: [{ at: 0, ms: 80, weak: .5, strong: .45 }]                                         // small thud on a boulder                                          // tiny bump
+    star: [{ at: 0, ms: 55, weak: .45, strong: 0 }],                                         // tiny tick for a science star
+    bump: [{ at: 0, ms: 80, weak: .5, strong: .45 }],                                        // small thud on a boulder or crater rim
+    sand: [{ at: 0, ms: 650, weak: 0, strong: .32 }],                                        // long low rumble in soft sand
+    hello: [{ at: 0, ms: 140, weak: .5, strong: .2 }]                                         // short "hello" when a controller connects
   };
   function pulse(p) {
     try {

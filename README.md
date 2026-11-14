@@ -11,6 +11,7 @@ A game for the NASA Space Apps 2026 challenge "Abandoned but not Forgotten." The
 | `js/host.js` | The 3D game on the laptop |
 | `js/controller.js` | The phone steering wheel |
 | `js/gamepad.js` | Game controller (DualSense) support |
+| `js/prompts.js` | The on-screen button hints for phone, controller and keyboard |
 | `tests/gamepad.test.js` | Tests for the controller code, using a fake controller. Run with `node tests/gamepad.test.js` |
 | `js/models.js` | The rover and the ghost machines, built from simple shapes |
 | `js/audio.js` | Music and sound effects, made by code |
@@ -37,10 +38,28 @@ You can also just double-click `index.html` to play with the keyboard (no phone)
 
 ## Controls
 
-- Phone: hold it sideways like a steering wheel, tilt to steer, hold DRIVE to move. "Re-center" resets straight ahead. If steering goes the wrong way, tap "Flip steering". If tilt doesn't work, tap "Tilt: on" to switch to arrow buttons. The phone buzzes when a ghost is near (Android only; iPhones don't allow web pages to vibrate).
-- Game controller (PlayStation DualSense or similar, by USB or Bluetooth): press any button first so the browser notices it. Left stick steers, R2 drives, L2 brakes and reverses (both are analog, so a light squeeze drives slowly). Cross is start/next, Circle is back, Triangle reads a card aloud, Square opens the sticker book, Options switches Moon and Mars, and the D-pad moves between on-screen buttons. The controller rumbles for signals, stars and found ghosts where the browser supports it (Chrome and Edge do).
-- All three work at the same time. Whichever one is being used takes over.
-- Keyboard: arrow keys or WASD to drive, Enter for start/next, R to read a card aloud, B for the sticker book, M to switch Moon and Mars, N to turn sound on or off.
+Ghost Rovers can be played three equal ways. Use whichever you have, and switch any time just by using another one. The pill in the bottom-left corner shows what you're driving with, and every button hint on screen changes to match it.
+
+| | 📱 Phone | 🎮 Controller (DualSense or similar) | ⌨️ Keyboard |
+| --- | --- | --- | --- |
+| Start | Scan the QR code, tap START | ✕ | Enter |
+| Steer | Tilt the phone | Left stick | ← → or A D (eases in smoothly) |
+| Drive | Hold DRIVE | R2 (press harder to go faster) | ↑ or W |
+| Brake and reverse | Hold BACK | L2 | ↓ or S |
+| Next / Keep exploring | NEXT | ✕ | Enter or Space |
+| Back / close | NEXT | ○ | Esc |
+| Read aloud | 🔊 | △ | R |
+| Sticker book | 📒 Stickers | □ | B |
+| Pause | (use the big screen) | Options | P |
+| Mission tasks | Tilt to move, hold NEXT (GRAB) to grab, Skip button | Stick to move, hold ✕ to grab, ○ to skip | ← → to move, hold Enter to grab, Esc to skip |
+| Choose a menu button | Tap it | D-pad | ← → on menus |
+
+- **Phone:** hold it sideways like a steering wheel. "Re-center" resets straight ahead, "Flip steering" fixes steering that goes the wrong way, and "Tilt: on/off" switches to arrow buttons. Moon ⇄ Mars switches world.
+- **Controller:** plug in by USB or pair by Bluetooth, then press any button so the browser notices it. Xbox and other controllers work too, with the same button positions. On Chrome and Edge an optional button can match a DualSense lightbar to the planet.
+- **Keyboard:** M switches between the Moon and Mars, N turns the sound on or off.
+- **Rumble:** the controller (where the browser supports it) and Android phones buzz: a soft pulse at 2 signal bars, a double pulse when a ghost is found or a task is done, a bump on boulders and crater rims, a long low rumble in soft sand, and a tiny tick for science stars. iPhones don't let web pages vibrate.
+- **If an input drops out** (a phone disconnects or a controller is unplugged) while you're driving with it, the game pauses and says so. Carry on with any other input.
+- Story cards wait 5 seconds before "Keep exploring" can be used, so there's time to read. Read aloud works straight away.
 
 ## How to play
 

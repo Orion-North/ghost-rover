@@ -467,30 +467,41 @@ function startHost() {
   // ------------------------------------------------------------------
   // input and actions (keyboard, on-screen buttons and the phone all end up here)
   // ------------------------------------------------------------------
+  // Keyboard. On menus and cards the arrow keys move between buttons and Enter presses the chosen one.
+  const GAME_KEYS = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "enter", "escape", "m", "r", "b", "n", "p"]);
+  const MENU_DIR = { arrowleft: -1, arrowup: -1, arrowright: 1, arrowdown: 1 };
   addEventListener("keydown", e => {
     const k = e.key.toLowerCase(); keys[k] = true; Sfx.init();
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " ", "enter"].includes(k)) e.preventDefault();
     if (e.repeat) return;
-    if (k === "enter" || k === " ") { e.preventDefault(); action("next"); }
+    if (GAME_KEYS.has(k)) setCtrl("kb");
+    const menu = !!overlayNow() && mode !== "task";
+    if (menu && k in MENU_DIR) { moveFocus(MENU_DIR[k]); return; }
+    if (k === "enter" || k === " ") { if (menu && padFocus) padFocus.click(); else action("next"); }
     if (k === "m") action("world");
     if (k === "r") action("read");
     if (k === "b") action("book");
     if (k === "n") action("mute");
-    if (k === "escape" && bookOpen) action("book");
-    if (k === "escape" && Tasks.active()) Tasks.skip();
+    if (k === "p") action("pause");
+    if (k === "escape") action("back");
   });
   addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
   addEventListener("pointerdown", () => Sfx.init());
   // Keyboard, phone and game controller are all read every frame. Whichever one is being used wins:
   // the strongest steering and the hardest pedal press count, so nobody has to switch anything.
-  let pad = null, ctrlNow = "";
+  let pad = null, ctrlNow = "kb", kbSteer = 0;
+  function updateKb(dt) { // keyboard steering eases in over about a third of a second, so it isn't twitchy, and lets go quickly
+    const t = (keys.arrowleft || keys.a ? -1 : 0) + (keys.arrowright || keys.d ? 1 : 0);
+    const rate = t !== 0 && (kbSteer === 0 || Math.sign(t) === Math.sign(kbSteer)) && Math.abs(t) > Math.abs(kbSteer) ? 3.2 : 8;
+    kbSteer += clamp(t - kbSteer, -rate * dt, rate * dt);
+  }
 
   // ---- mission tasks: a short hands-on job when a ghost wakes up, before its story card ----
   let taskSite = null, taskPulse = 0; const tasksDone = new Set();
   const taskSfx = { done: () => Sfx.found(), snap: () => Sfx.star(), bump: () => Sfx.bump(.3) };
   function startTask(st) {
     if (!Tasks.has(st.id)) { openCard(st, "site"); return; }
-    mode = "task"; taskSite = st; rover.v = 0; $("toast").classList.remove("show"); toastT = 0;
+    mode = "task"; taskSite = st; rover.v = 0; $("toast").classList.remove("show"); toastT = 0; Tasks.has(st.id) && setTimeout(refreshPrompts, 0);
     Tasks.start(st.id, { world: worldKey, sfx: n => (taskSfx[n] || (() => { }))(), buzz: k => { Pad.rumble(k); vibe(k === "found" ? [80, 50, 120] : [25]); },
       onEnd: ok => {
         taskSite = null;
@@ -501,28 +512,48 @@ function startHost() {
   }
   function stepTask(dt) { // the task uses the same controls as driving: steer moves the pointer, drive (or Enter, or Cross) grabs
     const i = input(); taskPulse -= dt;
-    Tasks.step(dt, { x: i.s, hold: i.g > 0 || keys.enter || keys[" "] || (pad && pad.down.cross) || taskPulse > 0 });
+    const phoneHold = phone.h && performance.now() - phone.t < 1200; if (phoneHold) setCtrl("phone");
+    Tasks.step(dt, { x: i.s, hold: i.g > 0 || keys.enter || keys[" "] || (pad && pad.down.cross) || phoneHold || taskPulse > 0 });
   }
 
-  function setCtrl(name) { if (name !== ctrlNow) { ctrlNow = name; $("hudCtrl").textContent = "Driving with: " + name; } }
+  // ---- which input is being used: the HUD pill and every on-screen button prompt follow it ----
+  function setCtrl(kind) { if (kind !== ctrlNow) { ctrlNow = kind; refreshPrompts(); } }
+  function refreshPrompts() {
+    const k = ctrlNow, P = Prompts, key = P.key, set = (id, act) => { const el = $(id); if (el) el.dataset.key = act ? P.label(k, act) : ""; };
+    $("hudCtrl").textContent = "Driving with: " + P.K[k].name;
+    document.querySelectorAll(".way").forEach(w => w.classList.toggle("on", w.dataset.way === k));
+    set("cardNext", "next"); set("cardRead", "read"); set("reportKeep", "next"); set("kbStart", "next"); set("howClose", "next"); set("pauseResume", "next");
+    set("bookClose", k === "phone" ? "next" : "back"); set("taskSkip", k === "phone" ? "" : "skip");
+    const html = {
+      card: { pad: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]), kb: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]),
+        phone: "On your phone: " + key("NEXT") + " keep exploring · " + key("🔊") + " read aloud" },
+      task: { pad: key("Left stick") + " move the hand · hold " + key("✕") + " to grab · " + key("○") + " skip", kb: key("←") + " " + key("→") + " move the hand · hold " + key("Enter") + " to grab · " + key("Esc") + " skip",
+        phone: "Tilt to move the hand · hold " + key("NEXT") + " to grab · " + key("Skip") + " on your phone" },
+      report: { pad: P.line(k, [["next", "Keep exploring"]]) + " · " + key("D-pad") + " choose a button", kb: P.line(k, [["next", "Keep exploring"]]) + " · " + key("←") + " " + key("→") + " choose a button",
+        phone: "On your phone: " + key("NEXT") + " keep exploring" },
+      book: { pad: key("○") + " or " + key("□") + " close", kb: key("Esc") + " or " + key("B") + " close", phone: "On your phone: " + key("NEXT") + " close" },
+      pause: { pad: key("✕") + " or " + key("○") + " resume · " + key("D-pad") + " choose", kb: key("Enter") + " or " + key("Esc") + " resume · " + key("←") + " " + key("→") + " choose", phone: "On your phone: " + key("RESUME") }
+    };
+    $("cardKeys").innerHTML = html.card[k]; $("reportKeys").innerHTML = html.report[k]; $("bookKeys").innerHTML = html.book[k]; $("pauseKeys").innerHTML = html.pause[k];
+    const tk = document.getElementById("taskKeys"); if (tk) tk.innerHTML = html.task[k];
+  }
   function input() {
     const live = performance.now() - phone.t < 1200;
-    let s = (keys.arrowleft || keys.a ? -1 : 0) + (keys.arrowright || keys.d ? 1 : 0);
-    let g = keys.arrowup || keys.w ? 1 : 0, r = keys.arrowdown || keys.s ? 1 : 0;
-    if (s || g || r) setCtrl("⌨️ keyboard");
+    let s = kbSteer, g = keys.arrowup || keys.w ? 1 : 0, r = keys.arrowdown || keys.s ? 1 : 0;
+    if (s || g || r) setCtrl("kb");
     if (live) {
-      if (phone.s || phone.g || phone.r) setCtrl("📱 phone");
+      if (phone.s || phone.g || phone.r) setCtrl("phone");
       if (Math.abs(phone.s) > Math.abs(s)) s = phone.s; if (phone.g) g = 1; if (phone.r) r = 1;
     }
     if (pad) {
-      if (pad.steer || pad.gas || pad.brake) setCtrl("🎮 controller");
+      if (pad.steer || pad.gas || pad.brake) setCtrl("pad");
       if (Math.abs(pad.steer) > Math.abs(s)) s = pad.steer; g = Math.max(g, pad.gas); r = Math.max(r, pad.brake);
     }
     return { s, g, r };
   }
 
   // ---- game controller: buttons, menu focus, connect / disconnect messages ----
-  const overlayNow = () => bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : mode === "task" ? $("task") : null;
+  const overlayNow = () => howOpen ? $("howto") : mode === "pause" ? $("pause") : bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : mode === "task" ? $("task") : null;
   let padFocus = null;
   function moveFocus(dir) {
     const ov = overlayNow(); if (!ov) return;
@@ -536,27 +567,73 @@ function startHost() {
     if (!pad) return;
     if (padFocus && (!overlayNow() || !overlayNow().contains(padFocus) || padFocus.offsetParent === null)) clearFocus();
     for (const b of pad.pressed) {
-      Sfx.init(); setCtrl("🎮 controller");
+      Sfx.init(); setCtrl("pad");
       if (b === "cross") { if (padFocus) padFocus.click(); else action("next"); }
-      else if (b === "circle") { if (bookOpen) action("book"); else if (mode === "card") action("next"); clearFocus(); }
+      else if (b === "circle") { action("back"); clearFocus(); }
       else if (b === "triangle") action("read");
       else if (b === "square") action("book");
-      else if (b === "options") action("world");
+      else if (b === "options") action("pause");
       else if (b === "left" || b === "up") moveFocus(-1);
       else if (b === "right" || b === "down") moveFocus(1);
     }
   }
-  addEventListener("gamepadconnected", () => { toast("Controller connected!", "Ready to drive", "🎮"); $("padHelp").classList.add("on"); if (Pad.lights.supported) $("lightsBtn").classList.remove("hidden"); });
-  addEventListener("gamepaddisconnected", () => { toast("Controller disconnected", "Keyboard and phone still work", "🎮"); });
+  addEventListener("gamepadconnected", () => {
+    toast("Controller connected!", "Ready to drive", "🎮"); setCtrl("pad"); setTimeout(() => Pad.rumble("hello"), 120);
+    $("padStatus").textContent = "🎮 Connected! Press ✕ to start."; if (Pad.lights.supported) $("lightsBtn").classList.remove("hidden");
+  });
+  addEventListener("gamepaddisconnected", () => {
+    $("padStatus").textContent = "Plug in by USB or pair by Bluetooth, then press any button.";
+    if (ctrlNow === "pad") lostInput("🎮 The controller disconnected. Plug it back in, or keep going with the keyboard or a phone.");
+    else toast("Controller disconnected", "", "🎮");
+  });
+  // An input dropped out mid-game: pause so nobody loses time, and let them carry on with another one.
+  function lostInput(msg) { if (mode === "play" || mode === "task" || mode === "count") openPause(msg); else toast(msg, "Input disconnected", "⚠️"); }
+
+  // ---- pause menu (P, Options) ----
+  let pausePrev = "play";
+  function openPause(msg) {
+    if (mode === "count") { mode = "play"; $("count").innerHTML = ""; $("intro").classList.remove("show"); countN = -1; }
+    if (mode !== "play" && mode !== "task") return;
+    pausePrev = mode; mode = "pause"; rover.v = 0; clearFocus();
+    $("pauseMsg").textContent = msg || ""; $("pauseMsg").classList.toggle("hidden", !msg);
+    $("pauseWorld").classList.toggle("hidden", pausePrev !== "play"); $("pauseTitle").classList.toggle("hidden", pausePrev !== "play");
+    $("pauseWorld").textContent = worldKey === "moon" ? "Go to Mars 🚀" : "Go to the Moon 🚀"; paintSound();
+    $("pause").classList.remove("hidden"); showClock(); sendState();
+  }
+  function resume() { $("pause").classList.add("hidden"); clearFocus(); mode = pausePrev; showClock(); sendState(); }
+  function paintSound() { $("pauseSound").textContent = Sfx.muted ? "🔇 Sound: Off" : "🔊 Sound: On"; }
+  function toTitle() { resume(); mode = "lobby"; Sfx.music(null); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock(); sendState(); }
+  $("pauseResume").onclick = () => action("next"); $("pauseWorld").onclick = () => action("world"); $("pauseSound").onclick = () => { action("mute"); paintSound(); }; $("pauseTitle").onclick = toTitle;
+
+  // ---- How to play (title screen) ----
+  let howOpen = false;
+  function openHow() { howOpen = true; clearFocus(); $("howto").classList.remove("hidden"); }
+  function closeHow() { howOpen = false; clearFocus(); $("howto").classList.add("hidden"); }
+  $("howBtn").onclick = openHow; $("howClose").onclick = closeHow;
   // optional extra: match the DualSense lightbar to the planet (Chrome / Edge, USB). The game is the same without it.
   const padLight = () => Pad.lights.color(...(worldKey === "moon" ? [90, 120, 255] : [255, 90, 10]));
   $("lightsBtn").onclick = async () => { const ok = await Pad.lights.connect(); if (ok) await padLight(); $("lightsBtn").textContent = ok ? "💡 Lights on" : "💡 Lights not available"; };
 
   function action(a) {
     if (a === "mute") { Sfx.setMuted(!Sfx.muted); store.set("mute", Sfx.muted ? "1" : ""); $("muteBtn").textContent = Sfx.muted ? "🔇" : "🔊"; return; }
-    if (mode === "task") { if (a === "next") taskPulse = .3; return; } // a quick tap (phone NEXT, Enter) counts as a short grab
+    if (howOpen) { if (a === "next" || a === "back") closeHow(); return; }
+    if (mode === "pause") {
+      if (a === "next" || a === "back" || a === "pause") resume();
+      else if (a === "world" && pausePrev === "play") { resume(); setWorld(worldKey === "moon" ? "mars" : "moon"); beginCount(); }
+      return;
+    }
+    if (mode === "task") { // a quick tap (phone NEXT, Enter) counts as a short grab
+      if (a === "next") taskPulse = .3; else if (a === "back" || a === "skip") Tasks.skip(); else if (a === "pause") openPause();
+      return;
+    }
     if (a === "book") { if (mode === "play" || bookOpen) toggleBook(); return; }
-    if (bookOpen) { if (a === "next") toggleBook(); return; }
+    if (bookOpen) { if (a === "next" || a === "back") toggleBook(); return; }
+    if (a === "pause") { if (mode === "play" || mode === "count") openPause(); return; }
+    if (a === "back") { // close a card (after the reading pause), or pause the game while driving
+      if (mode === "card") { if (!cardUnlockAt) closeCard(); }
+      else if (mode === "play") openPause();
+      return;
+    }
     if (a === "next") {
       if (mode === "report") keepExploring();
       else if (mode === "lobby") startPlay();
@@ -610,7 +687,7 @@ function startHost() {
   function keepExploring() { clock.free[worldKey] = true; $("report").classList.add("hidden"); mode = "play"; showClock(); sendState(); }
   function tryAgain() { for (const s of sites) { found.delete(s.id); tasksDone.delete(s.id); } for (const s of stars) starsGot.delete(s.id); resetClock(worldKey); $("report").classList.add("hidden"); setWorld(worldKey); beginCount(); }
   $("reportKeep").onclick = keepExploring; $("reportRetry").onclick = tryAgain;
-  const tips = new Set(); let bumpT = 0;
+  const tips = new Set(); let bumpT = 0, sandBuzzT = 0;
   function tip(id, text) { if (tips.has(id)) return; tips.add(id); toast(text, "Mars tip", "💡"); }
   $("kbStart").onclick = () => action("next");
   $("bookBtn").onclick = () => action("book");
@@ -917,21 +994,25 @@ function startHost() {
     });
     peer.on("connection", conn => {
       conn.on("open", () => {
-        conns.add(conn); $("peerStatus").textContent = "📱 Phone connected! Tap START on the phone."; $("hudCtrl").textContent = "📱 Phone connected"; ctrlNow = "";
+        conns.add(conn); $("peerStatus").textContent = "📱 Phone connected! Tap START on the phone."; setCtrl("phone");
         sendState(true);
       });
       conn.on("data", d => {
         if (!d || typeof d !== "object") return;
         if (d.t === "i") { phone.s = clamp(+d.s || 0, -1, 1); phone.g = !!d.g; phone.r = !!d.r; phone.t = performance.now(); }
-        else if (d.t === "a" && ["next", "world", "read", "book"].includes(d.a)) action(d.a);
+        else if (d.t === "h") { phone.h = !!d.h; phone.t = performance.now(); if (phone.h) setCtrl("phone"); } // NEXT held down (grabbing in a task)
+        else if (d.t === "a" && ["next", "world", "read", "book", "skip"].includes(d.a)) { setCtrl("phone"); action(d.a); }
       });
-      const gone = () => { conns.delete(conn); if (!conns.size) { $("hudCtrl").textContent = "Phone disconnected · keyboard works"; ctrlNow = ""; $("peerStatus").textContent = "Phone disconnected. Scan again to rejoin."; } };
+      const gone = () => {
+        if (!conns.has(conn)) return; conns.delete(conn); phone.g = phone.r = phone.h = false; phone.s = 0;
+        if (!conns.size) { $("peerStatus").textContent = "Phone disconnected. Scan again to rejoin."; if (ctrlNow === "phone") lostInput("📱 The phone disconnected. Scan the code again, or keep going with the keyboard or a controller."); }
+      };
       conn.on("close", gone); conn.on("error", gone);
     });
     peer.on("disconnected", () => { try { peer.reconnect(); } catch (e) { } });
-    peer.on("error", e => { $("peerStatus").textContent = "Phone link error: " + (e.type || e.message) + ". Keyboard still works."; });
+    peer.on("error", e => { $("peerStatus").textContent = "Phone link isn't available right now (" + (e.type || e.message) + "). The controller and keyboard work."; });
   } else {
-    $("qr").textContent = "Couldn't load the phone-link library. Keyboard play still works.";
+    $("qr").textContent = "Couldn't load the phone link. The controller and keyboard work.";
     $("peerStatus").textContent = "";
   }
 
@@ -975,6 +1056,7 @@ function startHost() {
       }
     }
     for (const sd of sands) if (Math.hypot(rover.x - sd.x, rover.y - sd.z) < sd.r) { rover.sand = true; tip("sand", "Careful! Spirit the rover got stuck in soft sand like this in 2009."); }
+    sandBuzzT -= dt; if (rover.sand && Math.abs(rover.v) > 20 && sandBuzzT <= 0) { sandBuzzT = .7; Pad.rumble("sand"); vibe([450]); } // long low rumble in soft sand
 
     const c = Math.cos(rover.h), s = Math.sin(rover.h), sp = Math.abs(rover.v);
     // --- up and down: follow the ground, and float after bumps (low gravity!) ---
@@ -1041,7 +1123,7 @@ function startHost() {
       if (starsGot.has(st.id)) continue;
       st.g.position.set(rx(st.x), st.h0 + 20 + Math.sin(time * 2.5 + st.x) * 3, st.y); st.mesh.rotation.y = time * 2.2;
       if (playing && Math.hypot(wdx(st.x - rover.x), st.y - rover.y) < 36) {
-        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([30, 30, 30]); Pad.rumble("star"); addTime(10); updateHud();
+        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([15]); Pad.rumble("star"); addTime(10); updateHud();
         for (let i = 0; i < 50; i++) { const a = rnd(0, 6.3), b = rnd(-1, 1.4), v = rnd(40, 140); spark.emit(st.g.position.x, st.g.position.y, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.5, 1.1), rnd(4, 8), 1, .85, .3, 1, 120, 1, -4); }
       }
     }
@@ -1092,7 +1174,7 @@ function startHost() {
       st.beam.scale.x = st.beam.scale.z = 9 + k * 40; st.core.scale.x = st.core.scale.z = 2.2 + k * 16;
       for (let i = 0; i < 4; i++) { const a = rnd(0, 6.3), d = rnd(40, 90); spark.emit(st.g.position.x + Math.cos(a) * d, st.h0 + rnd(0, 50), st.y + Math.sin(a) * d, -Math.cos(a) * d * 1.4, rnd(0, 20), -Math.sin(a) * d * 1.4, .7, rnd(3, 6), .6, .92, 1, 1, 0, 0, 0); }
       if (r.t >= 1.5) {
-        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); vibe([200]); Pad.rumble("found");
+        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); vibe([120, 80, 120]); Pad.rumble("found");
         const f = $("flash"); f.style.transition = "none"; f.style.opacity = .85; requestAnimationFrame(() => { f.style.transition = "opacity .6s"; f.style.opacity = 0; });
         for (let i = 0; i < 160; i++) { const a = rnd(0, 6.3), b = rnd(-.2, 1.6), v = rnd(50, 220); spark.emit(st.g.position.x, st.h0 + 22, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.8, 1.9), rnd(4, 9), 1, rnd(.7, 1), rnd(.2, .6), 1, 110, .8, -3); }
         updateHud();
@@ -1155,17 +1237,17 @@ function startHost() {
   // ------------------------------------------------------------------
   // main loop
   // ------------------------------------------------------------------
-  setWorld("moon");
+  setWorld("moon"); refreshPrompts();
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
-    rover, found, starsGot, deepSeen, tasksDone, cardSeen, cardLocked: () => !!cardUnlockAt, Tasks, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
+    rover, found, starsGot, deepSeen, tasksDone, cardSeen, ctrl: () => ctrlNow, kbSteer: () => kbSteer, openPause, cardLocked: () => !!cardUnlockAt, Tasks, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer
   };
   let last = performance.now(), slow = 0, frames = 0;
   function frame(now) {
     const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
-    pollPad(); tickCardWait();
-    if (Tasks.active()) stepTask(Math.min(.05, raw));
+    updateKb(Math.min(.05, raw)); pollPad(); tickCardWait();
+    if (Tasks.active() && mode === "task") stepTask(Math.min(.05, raw));
     update(dt);
     if (Math.abs(rover.x - tcx) > 120 || Math.abs(rover.y - tcz) > 120) updateTerrain(Math.round(rover.x / 120) * 120, Math.round(rover.y / 120) * 120);
     dust.update(dt); spark.update(dt);

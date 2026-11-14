@@ -41,7 +41,8 @@ const Pad = (() => {
   const EFFECTS = {
     signal: [{ at: 0, ms: 110, weak: .35, strong: .12 }],                                   // soft short pulse
     found: [{ at: 0, ms: 170, weak: .8, strong: 1 }, { at: 280, ms: 220, weak: .8, strong: 1 }], // stronger double pulse
-    star: [{ at: 0, ms: 55, weak: .45, strong: 0 }]                                          // tiny bump
+    star: [{ at: 0, ms: 55, weak: .45, strong: 0 }],
+    bump: [{ at: 0, ms: 80, weak: .5, strong: .45 }]                                         // small thud on a boulder                                          // tiny bump
   };
   function pulse(p) {
     try {

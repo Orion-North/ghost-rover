@@ -27,7 +27,7 @@ function startController(hostId) {
     if (d.t === "vibe") buzz(d.p);
     if (d.t === "state") {
       const isCard = d.mode === "card", lobby = d.mode === "lobby";
-      $("bNext").classList.toggle("hidden", !(isCard || lobby || d.mode === "book"));
+      $("bNext").classList.toggle("hidden", !(isCard || lobby || d.mode === "book" || d.mode === "report"));
       $("bNext").textContent = lobby ? "START ▶" : d.mode === "book" ? "CLOSE ✕" : "NEXT ▶";
       $("bNext").className = "btn go" + ($("bNext").classList.contains("hidden") ? " hidden" : "");
       $("bRead").classList.toggle("hidden", !isCard);
@@ -36,6 +36,7 @@ function startController(hostId) {
       if (isCard) $("pStatus").innerHTML = `Found <b>${escapeHtml(d.card)}</b>!<br>Read its story on the big screen.`;
       else if (lobby) $("pStatus").innerHTML = `World: <b>${escapeHtml(d.world)}</b><br>Tap START when everyone's ready`;
       else if (d.mode === "book") $("pStatus").innerHTML = "Sticker book is open on the big screen";
+      else if (d.mode === "report") $("pStatus").innerHTML = "<b>Mission report</b><br>Tap NEXT to keep exploring";
       else if (d.mode === "count") $("pStatus").innerHTML = "<b>Get ready…</b>";
       else if (d.mode === "revive") $("pStatus").innerHTML = "<b>Waking up a ghost…</b>";
       else $("pStatus").innerHTML = `<b>${escapeHtml(d.world)}</b> · 👻 ${d.found}/${d.total} · ⭐ ${d.stars}<br><span class="sig">${"▮".repeat(d.sig)}${"▯".repeat(4 - d.sig)}</span> ${escapeHtml(d.dist || "")}`;

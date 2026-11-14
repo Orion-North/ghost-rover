@@ -82,7 +82,10 @@ b,h1,h2,h3{font-weight:700}
 .swatches{display:flex;gap:10px;flex-wrap:wrap}
 .sw{width:42px;height:42px;border-radius:50%;border:4px solid rgba(255,255,255,.4);padding:0;transition:transform .12s}
 .sw.on{border-color:#fff;transform:scale(1.2);box-shadow:0 0 0 4px rgba(255,255,255,.25)}
-#lobby .go{font-size:26px;padding:16px 34px;margin-top:22px}
+#lobby .go{font-size:26px;padding:16px 34px}
+#timerBtn{font-size:17px;padding:10px 18px}
+#timerBtn.off{background:#39406e;box-shadow:0 6px 0 #232848;color:var(--dim)}
+.pick small b{color:var(--gold)}
 .keys{color:var(--dim);font-size:14px;margin-top:14px;line-height:1.75}
 .keys b{color:#fff;margin-right:4px}
 #padHelp.on b{color:var(--gold)}
@@ -123,6 +126,23 @@ b,h1,h2,h3{font-weight:700}
 #card .hint{color:var(--dim);font-size:14px}
 
 #card.deep{background:radial-gradient(1.5px 1.5px at 12% 20%,#fff,transparent),radial-gradient(1.5px 1.5px at 30% 75%,#fff,transparent),radial-gradient(2px 2px at 48% 12%,#cfe,transparent),radial-gradient(1.5px 1.5px at 66% 88%,#fff,transparent),radial-gradient(2px 2px at 82% 30%,#fff,transparent),radial-gradient(1.5px 1.5px at 92% 64%,#fec,transparent),radial-gradient(1.5px 1.5px at 6% 90%,#fff,transparent),radial-gradient(ellipse at 70% 20%,#2a1b5e,#05061a 70%)}
+
+/* timer, level intro, mission report */
+#hudTime{font-size:27px;padding:5px 20px;position:relative;border-color:var(--gold)}
+#hudTime b{color:#fff;font-variant-numeric:tabular-nums}
+#hudTime.low{border-color:var(--orange);animation:tpulse 1s infinite ease-in-out} #hudTime.low b{color:var(--orange)}
+@keyframes tpulse{50%{transform:scale(1.07)}}
+#timeBonus{position:absolute;right:-8px;top:-6px;color:var(--go);font-size:24px;font-weight:700;opacity:0;pointer-events:none;text-shadow:0 2px 0 #141a3c,0 0 6px #141a3c}
+#timeBonus.go{animation:bonus 1.4s ease-out}
+@keyframes bonus{0%{opacity:0;transform:translate(0,10px) scale(.6)}20%{opacity:1;transform:translate(8px,-6px) scale(1.25)}100%{opacity:0;transform:translate(14px,-46px) scale(1)}}
+#intro{position:fixed;left:50%;top:24%;transform:translate(-50%,-50%) scale(.6);opacity:0;z-index:8;pointer-events:none;text-align:center;transition:transform .4s cubic-bezier(.2,1.5,.4,1),opacity .3s;
+  background:rgba(20,26,60,.88);border:5px solid #fff;border-radius:28px;padding:12px 34px;box-shadow:0 8px 0 rgba(0,0,0,.3)}
+#intro.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+#intro b{display:block;font-size:40px;line-height:1.1} #intro span{font-size:24px;font-weight:700;color:var(--gold)}
+.repStats{display:flex;gap:18px;justify-content:center}
+.repStats div{background:rgba(0,0,0,.25);border-radius:22px;padding:14px 26px;min-width:170px}
+.repStats span{font-size:34px;display:block} .repStats b{font-size:36px;color:var(--gold);display:block;line-height:1.1} .repStats small{color:var(--dim);font-size:15px}
+@media (prefers-reduced-motion:reduce){#hudTime.low{animation:none}}
 
 /* sticker book */
 #book .box{max-width:1000px}
@@ -197,7 +217,9 @@ b,h1,h2,h3{font-weight:700}
     <div class="chip" id="hudWorld">Moon</div>
     <div class="chip">👻 <b id="hudFound">0/0</b></div>
     <div class="chip">⭐ <b id="hudStars">0/0</b></div>
+    <div class="chip hidden" id="hudTime">⏱ <b id="timeTxt">0:00</b><span id="timeBonus"></span></div>
   </div>
+  <div id="intro"></div>
   <div id="compass" class="hidden"><div class="dial"><div id="needle"></div></div><div class="lbl" id="compassLbl"></div></div>
   <div id="hudR" class="hidden">
     <div id="signal" class="chip">Signal<span class="bars"><i style="height:6px"></i><i style="height:11px"></i><i style="height:16px"></i><i style="height:22px"></i></span></div>
@@ -217,12 +239,12 @@ b,h1,h2,h3{font-weight:700}
         <p class="sub">Abandoned but not forgotten. Race across the real Moon and Mars, follow the signals, and wake up the machines we left behind.</p>
         <div class="lab">Pick your world</div>
         <div class="picks">
-          <button class="pick on" data-world="moon"><i class="planet moon"></i><span>Moon<small>4 ghosts to find</small></span></button>
-          <button class="pick" data-world="mars"><i class="planet mars"></i><span>Mars<small>7 ghosts to find</small></span></button>
+          <button class="pick on" data-world="moon"><i class="planet moon"></i><span>Moon<small></small></span></button>
+          <button class="pick" data-world="mars"><i class="planet mars"></i><span>Mars<small></small></span></button>
         </div>
         <div class="lab">Paint your rover</div>
         <div class="swatches" id="swatches"></div>
-        <button class="btn go" id="kbStart">START ▶</button>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:22px"><button class="btn go" id="kbStart">START ▶</button><button class="btn alt" id="timerBtn" title="Turn the mission timer on or off">⏱ Timer: On</button></div>
         <div class="keys">
           <div><b>⌨️ Keyboard</b> arrows or WASD drive · Enter start / next · R read aloud · B sticker book · M change world · N sound</div>
           <div id="padHelp"><b>🎮 Controller</b> <i class="ps">L</i> left stick steer · <i class="ps">R2</i> drive · <i class="ps">L2</i> brake / reverse · <i class="ps x">✕</i> start / next · <i class="ps o">○</i> back · <i class="ps t">△</i> read aloud · <i class="ps s">□</i> sticker book · <i class="ps">OPTIONS</i> change world · <i class="ps">D-pad</i> pick a button</div>
@@ -260,6 +282,20 @@ b,h1,h2,h3{font-weight:700}
           <span class="hint">Phone: tap NEXT · Keyboard: Enter, R to read</span>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="report" class="overlay hidden">
+    <div class="box" style="max-width:640px;text-align:center">
+      <div class="kicker" style="display:inline-block;background:var(--ghost);color:#04283a;border-radius:999px;padding:3px 14px;font-weight:700;letter-spacing:1px;font-size:14px;text-transform:uppercase">Time's up on <span id="repWorld"></span></div>
+      <h2 style="font-size:44px;margin:10px 0 4px">📋 Mission Report</h2>
+      <p style="color:var(--dim);font-size:19px;margin:0 0 18px">Great driving, explorer! Here's what you found so far.</p>
+      <div class="repStats"><div><span>👻</span><b id="repGhosts">0 / 0</b><small>ghosts found</small></div><div><span>⭐</span><b id="repStars">0 / 0</b><small>science stars</small></div></div>
+      <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:24px">
+        <button class="btn go" id="reportKeep">Keep exploring ▶</button>
+        <button class="btn alt" id="reportRetry">Try again ↺</button>
+      </div>
+      <p style="color:var(--dim);font-size:14px;margin:16px 0 0">Keep exploring carries on with no timer, so you can still finish the story.</p>
     </div>
   </div>
 

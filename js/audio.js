@@ -87,6 +87,7 @@ const Sfx = (() => {
     wake() { tone(220, 1.6, { type: "sawtooth", to: 1320, vol: .07 }); for (let i = 0; i < 10; i++) tone(hz(72 + i * 2), .12, { delay: .3 + i * .12, type: "sine", vol: .08 }); },
     found() { [72, 76, 79, 84, 88].forEach((m, i) => tone(hz(m), i === 4 ? .9 : .22, { delay: i * .11, type: "triangle", vol: .2 })); tone(hz(60), 1.2, { delay: .44, vol: .16 }); },
     cheer() { [72, 72, 72, 76, 79, 76, 79, 84].forEach((m, i) => tone(hz(m), .3, { delay: i * .13, type: "square", vol: .1 })); [60, 64, 67, 72].forEach(m => tone(hz(m), 1.6, { delay: 1.05, vol: .12 })); },
+    tick() { tone(1500, .035, { type: "sine", vol: .045 }); },
     click() { tone(660, .06, { type: "square", vol: .07 }); }
   };
 })();

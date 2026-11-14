@@ -62,16 +62,29 @@ function startHost() {
     return lerp(lerp(hash(a, iy, seed), hash(b, iy, seed), sx), lerp(hash(a, iy + 1, seed), hash(b, iy + 1, seed), sx), sy);
   }
   const ti = { shade: 0, tint: 0, c: 0 }; // extra info from the last height lookup, used for colouring
+  // Places obstacles must keep away from: every ghost, every science star and the start. (Filled in by buildWorld.)
+  let clearPts = [], craterMemo = new Map();
+  const isClear = (px, pz, rad) => !clearPts.some(c => Math.hypot(wdx(c.x - px), c.y - pz) < rad + c.r);
+  function craterCell(ix, iz, cell, prob, rmin, rmax) { // the crater (if any) that lives in one square of the map
+    const m = wrapI(ix, cell), key = m * 8191 + iz; let c = craterMemo.get(key);
+    if (c === undefined) {
+      c = null;
+      if (hash(m, iz, 21) <= prob) {
+        const q = hash(m, iz, 22), r = rmin + q * q * (rmax - rmin), fx = .2 + .6 * hash(m, iz, 23), fz = .2 + .6 * hash(m, iz, 24);
+        // On Mars craters are obstacles, so none may sit on a ghost, a star or the start
+        if (worldKey === "moon" || isClear((m + fx) * cell, (iz + fz) * cell, r * 1.2)) c = { r, fx, fz };
+      }
+      craterMemo.set(key, c);
+    }
+    return c;
+  }
   function craters(x, z, cell, prob, rmin, rmax) {
-    let out = 0, c = 0; const cx = Math.floor(x / cell), cz = Math.floor(z / cell);
+    let out = 0, c = 0; const cx = Math.floor(x / cell), cz = Math.floor(z / cell), steep = worldKey !== "moon"; // Mars craters have tall, steep rims
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-      const ix = cx + dx, iz = cz + dz, m = wrapI(ix, cell);
-      if (hash(m, iz, 21) > prob) continue;
-      const q = hash(m, iz, 22), r = rmin + q * q * (rmax - rmin);
-      const px = (ix + .2 + .6 * hash(m, iz, 23)) * cell, pz = (iz + .2 + .6 * hash(m, iz, 24)) * cell;
-      const d = Math.hypot(x - px, z - pz) / r; if (d > 1.6) continue;
-      if (d < 1) { out += r * .2 * (d * d - 1); c -= .13 * (1 - d); }
-      const e = (d - 1) / .22, rim = Math.exp(-e * e); out += r * .07 * rim; c += .1 * rim;
+      const ix = cx + dx, iz = cz + dz, cr = craterCell(ix, iz, cell, prob, rmin, rmax); if (!cr) continue;
+      const r = cr.r, d = Math.hypot(x - (ix + cr.fx) * cell, z - (iz + cr.fz) * cell) / r; if (d > 1.6) continue;
+      if (d < 1) { out += r * (steep ? .3 : .2) * (d * d - 1); c -= .13 * (1 - d); }
+      const e = (d - 1) / .22, rim = Math.exp(-e * e); out += r * (steep ? .17 : .07) * rim; c += .1 * rim;
     }
     ti.c = c; return out;
   }
@@ -125,6 +138,7 @@ function startHost() {
 
   function updateTerrain(cx, cz) {
     tcx = cx; tcz = cz; const moon = worldKey === "moon"; let p = 0;
+    listObstacles(cx, cz);
     for (let j = 0; j < TV; j++) for (let i = 0; i < TV; i++) {
       const x = cx + (i - TN / 2) * TC, z = cz + (j - TN / 2) * TC, h = H(x, z);
       tPos[p] = x; tPos[p + 1] = h; tPos[p + 2] = z;
@@ -136,6 +150,7 @@ function startHost() {
         const k = ti.tint, s = ti.shade, m = lum >= 0 ? .55 + lum * .9 : 1;
         r = (lerp(.66, .86, k) + s) * m; g = (lerp(.29, .43, k) + s * .75) * m; b = (lerp(.17, .24, k) + s * .5) * m;
       }
+      for (const sd of sands) { const d = Math.hypot(x - sd.x, z - sd.z) / sd.r; if (d < 1.15) { const k = 1 - smooth((d - .8) / .35); r *= 1 - .2 * k; g *= 1 - .26 * k; b *= 1 - .3 * k; } } // soft sand is a little darker
       tCol[p] = r; tCol[p + 1] = g; tCol[p + 2] = b; p += 3;
     }
     tGeo.attributes.position.needsUpdate = true; tGeo.attributes.color.needsUpdate = true;
@@ -149,13 +164,42 @@ function startHost() {
   const mesaGeo = new T.CylinderGeometry(.7, 1, 1, 7); mesaGeo.translate(0, .5, 0);
   const mesas = new T.InstancedMesh(mesaGeo, new T.MeshLambertMaterial({ flatShading: true }), 60);
   mesas.frustumCulled = false; scene.add(mesas);
-  let mesaList = [];
+  // ---- Mars obstacles (Level 2). Each kind lives on its own grid of squares, so they are the same every game. ----
+  // All of them keep clear of ghosts, stars and the start, so every ghost can always be reached.
+  function mesaAt(ix, iz) {
+    const m = wrapI(ix, 900); if (hash(m, iz, 41) > .34) return null;
+    const x = (ix + .15 + .7 * hash(m, iz, 42)) * 900, z = (iz + .15 + .7 * hash(m, iz, 43)) * 900, r = 70 + hash(m, iz, 44) * 110;
+    return isClear(x, z, r + 30) ? { x, z, r: r * .95, R: r, hgt: 60 + hash(m, iz, 45) * 100, m, iz, kind: "mesa" } : null;
+  }
+  function boulderAt(ix, iz) { // solid rocks to steer around
+    const m = wrapI(ix, 300); if (hash(m, iz, 51) > .3) return null;
+    const x = (ix + .2 + .6 * hash(m, iz, 52)) * 300, z = (iz + .2 + .6 * hash(m, iz, 53)) * 300, r = 13 + hash(m, iz, 54) * 12;
+    return isClear(x, z, r) ? { x, z, r, m, iz, kind: "boulder" } : null;
+  }
+  function sandAt(ix, iz) { // soft sand that slows the rover down
+    const m = wrapI(ix, 600); if (hash(m, iz, 61) > .36) return null;
+    const x = (ix + .2 + .6 * hash(m, iz, 62)) * 600, z = (iz + .2 + .6 * hash(m, iz, 63)) * 600, r = 70 + hash(m, iz, 64) * 50;
+    return isClear(x, z, r) ? { x, z, r, m, iz, kind: "sand" } : null;
+  }
+  function craterAt(ix, iz) { const c = craterCell(ix, iz, 900, .25, 40, 110); return c ? { x: (ix + c.fx) * 900, z: (iz + c.fz) * 900, r: c.r, kind: "crater" } : null; }
+  function gather(fn, cell, cx, cz, reach, out) { const a = Math.round(cx / cell), b = Math.round(cz / cell), n = Math.ceil(reach / cell); for (let ix = a - n; ix <= a + n; ix++) for (let iz = b - n; iz <= b + n; iz++) { const o = fn(ix, iz); if (o) out.push(o); } return out; }
+  let solids = [], sands = [];
+  function listObstacles(cx, cz) {
+    solids = []; sands = []; if (worldKey === "moon") return; // the Moon is the easy level: nothing blocks the rover there
+    gather(mesaAt, 900, cx, cz, 2700, solids); gather(boulderAt, 300, cx, cz, 1500, solids); gather(craterAt, 900, cx, cz, 1800, solids);
+    gather(sandAt, 600, cx, cz, 1800, sands);
+  }
+  const boulders = new T.InstancedMesh(new T.IcosahedronGeometry(1, 0), new T.MeshLambertMaterial({ flatShading: true }), 160);
+  boulders.castShadow = true; boulders.frustumCulled = false; scene.add(boulders);
+  const ripples = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshLambertMaterial({ color: 0x7c3520, flatShading: true }), 700);
+  ripples.frustumCulled = false; scene.add(ripples);
+
   function updateProps(cx, cz) {
     const moon = worldKey === "moon"; let n = 0;
-    const c0 = Math.round(cx / 90), z0 = Math.round(cz / 90);
+    const c0 = Math.round(cx / 90), z0 = Math.round(cz / 90), dens = moon ? .16 : .42, big = moon ? 3 : 4; // just a few small rocks on the Moon
     for (let ix = c0 - 11; ix <= c0 + 11; ix++) for (let iz = z0 - 11; iz <= z0 + 11; iz++) {
-      const m = wrapI(ix, 90); if (hash(m, iz, 31) > .55 || n >= 520) continue;
-      const px = (ix + hash(m, iz, 32)) * 90, pz = (iz + hash(m, iz, 33)) * 90, q = hash(m, iz, 34), s = 1.5 + q * q * q * 8;
+      const m = wrapI(ix, 90); if (hash(m, iz, 31) > dens || n >= 520) continue;
+      const px = (ix + hash(m, iz, 32)) * 90, pz = (iz + hash(m, iz, 33)) * 90, q = hash(m, iz, 34), s = 1.4 + q * q * big;
       if (sites.some(t => Math.hypot(wdx(t.x - px), t.y - pz) < 70)) continue;
       dummy.position.set(px, H(px, pz) + s * .25, pz); dummy.rotation.set(q * 6, q * 40, q * 17); dummy.scale.set(s, s * .75, s * (.8 + q * .5)); dummy.updateMatrix();
       rocks.setMatrixAt(n, dummy.matrix);
@@ -163,20 +207,36 @@ function startHost() {
     }
     rocks.count = n; rocks.instanceMatrix.needsUpdate = true; if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
 
-    n = 0; mesaList = [];
-    if (!moon) {
-      const m0 = Math.round(cx / 900), n0 = Math.round(cz / 900), [sx0, sy0] = toXY(WD.start[0], WD.start[1]);
-      for (let ix = m0 - 3; ix <= m0 + 3; ix++) for (let iz = n0 - 3; iz <= n0 + 3; iz++) {
-        const m = wrapI(ix, 900); if (hash(m, iz, 41) > .34 || n >= 60) continue;
-        const px = (ix + .15 + .7 * hash(m, iz, 42)) * 900, pz = (iz + .15 + .7 * hash(m, iz, 43)) * 900, r = 70 + hash(m, iz, 44) * 110, hgt = 60 + hash(m, iz, 45) * 100;
-        const near = (x, y) => Math.hypot(wdx(x - px), y - pz) < r + 260;
-        if (sites.some(t => near(t.x, t.y)) || stars.some(t => near(t.x, t.y)) || near(sx0, sy0)) continue;
-        dummy.position.set(px, H(px, pz) - 20, pz); dummy.rotation.set(0, hash(m, iz, 46) * 6, 0); dummy.scale.set(r, hgt + 20, r * (.7 + hash(m, iz, 47) * .5)); dummy.updateMatrix();
-        mesas.setMatrixAt(n, dummy.matrix); const v = .85 + hash(m, iz, 48) * .3; mesas.setColorAt(n, tmpC.setRGB(.7 * v, .33 * v, .2 * v)); n++;
-        mesaList.push({ x: px, z: pz, r: r * .95 });
+    let nm = 0, nb = 0, nr = 0;
+    for (const o of solids) {
+      if (o.kind === "mesa" && nm < 60) {
+        dummy.position.set(o.x, H(o.x, o.z) - 20, o.z); dummy.rotation.set(0, hash(o.m, o.iz, 46) * 6, 0); dummy.scale.set(o.R, o.hgt + 20, o.R * (.7 + hash(o.m, o.iz, 47) * .5)); dummy.updateMatrix();
+        mesas.setMatrixAt(nm, dummy.matrix); const v = .85 + hash(o.m, o.iz, 48) * .3; mesas.setColorAt(nm++, tmpC.setRGB(.7 * v, .33 * v, .2 * v));
+      } else if (o.kind === "boulder" && nb < 160) {
+        const q = hash(o.m, o.iz, 55); dummy.position.set(o.x, H(o.x, o.z) + o.r * .3, o.z); dummy.rotation.set(q * 5, q * 30, q * 11); dummy.scale.set(o.r * 1.05, o.r * (.8 + q * .3), o.r * 1.05); dummy.updateMatrix();
+        boulders.setMatrixAt(nb, dummy.matrix); const v = .8 + q * .3; boulders.setColorAt(nb++, tmpC.setRGB(.47 * v, .2 * v, .15 * v));
       }
     }
-    mesas.count = n; mesas.instanceMatrix.needsUpdate = true; if (mesas.instanceColor) mesas.instanceColor.needsUpdate = true;
+    for (const sd of sands) for (let k = -3; k <= 3; k++) { // wavy ripple lines across each sand patch
+      const off = k * sd.r * .26, half = Math.sqrt(Math.max(0, sd.r * sd.r * .85 - off * off));
+      for (let seg = -1; seg <= 1 && nr < 700; seg++) {
+        const lx = seg * half * .66, x = sd.x + lx, z = sd.z + off + Math.sin(lx * .05 + k) * 5;
+        dummy.position.set(x, H(x, z) + .5, z); dummy.rotation.set(0, Math.cos(lx * .05 + k) * .2, 0); dummy.scale.set(half * .68, 1, 3.2); dummy.updateMatrix(); ripples.setMatrixAt(nr++, dummy.matrix);
+      }
+    }
+    mesas.count = nm; mesas.instanceMatrix.needsUpdate = true; if (mesas.instanceColor) mesas.instanceColor.needsUpdate = true;
+    boulders.count = nb; boulders.instanceMatrix.needsUpdate = true; if (boulders.instanceColor) boulders.instanceColor.needsUpdate = true;
+    ripples.count = nr; ripples.instanceMatrix.needsUpdate = true;
+  }
+  // Can every ghost and star be reached from the start? Flood-fills a grid of the whole map around the solid obstacles. (Used by tests.)
+  function reachable() {
+    const g = 30, gw = Math.ceil(W.w / g), gh = Math.ceil(W.h / g), blocked = new Uint8Array(gw * gh), all = [];
+    gather(mesaAt, 900, W.w / 2, W.h / 2, Math.max(W.w, W.h) / 2 + 900, all); gather(boulderAt, 300, W.w / 2, W.h / 2, Math.max(W.w, W.h) / 2 + 300, all); gather(craterAt, 900, W.w / 2, W.h / 2, Math.max(W.w, W.h) / 2 + 900, all);
+    if (worldKey === "moon") all.length = 0;
+    for (const o of all) { const R = o.r + 20, n = Math.ceil(R / g); for (let a = -n; a <= n; a++) for (let b = -n; b <= n; b++) { if (Math.hypot(a, b) * g > R) continue; let gx = Math.floor(o.x / g) + a; const gy = Math.floor(o.z / g) + b; if (WD.wrap) gx = ((gx % gw) + gw) % gw; if (gx >= 0 && gx < gw && gy >= 0 && gy < gh) blocked[gy * gw + gx] = 1; } }
+    const seen = new Uint8Array(gw * gh), [sx, sy] = toXY(WD.start[0], WD.start[1]), cell = (x, y) => Math.floor(y / g) * gw + ((Math.floor(x / g) % gw) + gw) % gw, q = [cell(sx, sy)]; seen[q[0]] = 1;
+    while (q.length) { const c = q.pop(), x = c % gw, y = (c - x) / gw; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let nx = x + dx; const ny = y + dy; if (WD.wrap) nx = (nx + gw) % gw; if (nx < 0 || nx >= gw || ny < 0 || ny >= gh) continue; const k = ny * gw + nx; if (!seen[k] && !blocked[k]) { seen[k] = 1; q.push(k); } } }
+    return { obstacles: all.length, ghosts: sites.map(s => [s.id, !!seen[cell(s.x, s.y)]]), stars: stars.map(s => [s.id, !!seen[cell(s.x, s.y)]]) };
   }
 
   // ------------------------------------------------------------------
@@ -295,7 +355,7 @@ function startHost() {
 
   const devils = [];
   { const m = new T.MeshBasicMaterial({ color: 0xe9b98a, transparent: true, opacity: .2, side: T.DoubleSide, depthWrite: false });
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < 4; k++) {
       const g = new T.Group(); g.userData = { x: 0, z: 0, seed: k * 7.3, far: true };
       for (let i = 0; i < 7; i++) { const r = 5 + i * 3.4, c = new T.Mesh(new T.CylinderGeometry(r + 3.6, r, 24, 9, 1, true), m); c.position.y = 12 + i * 23; g.add(c); }
       scene.add(g); devils.push(g);
@@ -323,8 +383,9 @@ function startHost() {
     worldGroup.traverse(o => { if (o.isSprite && o.material.map) { o.material.map.dispose(); o.material.dispose(); } });
     worldGroup = new T.Group(); scene.add(worldGroup);
     sites = WD.sites.map(s => { const [x, y] = toXY(s.lat, s.lon); return Object.assign({}, s, { x, y }); });
-    for (const s of sites) s.h0 = rawH(s.x, s.y);
     stars = WD.stars.map(([lat, lon, fact], i) => { const [x, y] = toXY(lat, lon); return { id: worldKey + i, x, y, fact }; });
+    { const [sx, sy] = toXY(WD.start[0], WD.start[1]); clearPts = sites.map(s => ({ x: s.x, y: s.y, r: 230 })).concat(stars.map(s => ({ x: s.x, y: s.y, r: 90 })), [{ x: sx, y: sy, r: 260 }]); craterMemo = new Map(); }
+    for (const s of sites) s.h0 = rawH(s.x, s.y);
     for (const s of sites) {
       const g = new T.Group(); g.position.set(s.x, s.h0, s.y); worldGroup.add(g); s.g = g;
       s.model = Models.hardware(s.type, s); s.model.scale.setScalar(1.3); s.model.rotation.y = hash(s.lat * 100 | 0, 3, 5) * 6; g.add(s.model);
@@ -387,7 +448,7 @@ function startHost() {
     setupMini();
     document.querySelectorAll(".pick").forEach(b => b.classList.toggle("on", b.dataset.world === k));
     if (mode !== "lobby") Sfx.music(k);
-    padLight();
+    padLight(); showClock();
     updateHud(); sendState();
   }
   function nearestUnfound() {
@@ -433,7 +494,7 @@ function startHost() {
   }
 
   // ---- game controller: buttons, menu focus, connect / disconnect messages ----
-  const overlayNow = () => bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : null;
+  const overlayNow = () => bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : null;
   let padFocus = null;
   function moveFocus(dir) {
     const ov = overlayNow(); if (!ov) return;
@@ -468,7 +529,8 @@ function startHost() {
     if (a === "book") { if (mode === "play" || bookOpen) toggleBook(); return; }
     if (bookOpen) { if (a === "next") toggleBook(); return; }
     if (a === "next") {
-      if (mode === "lobby") startPlay();
+      if (mode === "report") keepExploring();
+      else if (mode === "lobby") startPlay();
       else if (mode === "card") closeCard();
     } else if (a === "world") {
       if (mode === "lobby") setWorld(worldKey === "moon" ? "mars" : "moon");
@@ -487,7 +549,40 @@ function startHost() {
     if (store.get("color", ROVER_COLORS[1][1]) === hex) mark();
   });
   document.querySelectorAll(".pick").forEach(b => b.onclick = () => { Sfx.init(); Sfx.click(); if (worldKey !== b.dataset.world) setWorld(b.dataset.world); });
-  document.querySelectorAll(".pick").forEach(b => b.querySelector("small").textContent = WORLDS[b.dataset.world].sites.length + " ghosts to find");
+  document.querySelectorAll(".pick").forEach(b => { const w = WORLDS[b.dataset.world]; b.querySelector("small").innerHTML = "<b></b> · " + w.sites.length + " ghosts"; b.querySelector("b").textContent = w.level; });
+
+  // ---- mission timer. It only runs while you are actually driving: never during cards, the sticker book, the countdown or a wake-up. ----
+  const clock = { left: {}, free: {}, on: store.get("timer", "1") !== "0", sec: -1 };
+  const resetClock = k => { clock.left[k] = WORLDS[k].timeLimit; clock.free[k] = false; };
+  resetClock("moon"); resetClock("mars");
+  const fmt = t => { t = Math.max(0, Math.ceil(t)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); };
+  const timing = () => clock.on && !clock.free[worldKey] && !sites.every(s => found.has(s.id));
+  function showClock() {
+    const el = $("hudTime"), t = clock.left[worldKey];
+    el.classList.toggle("hidden", !clock.on || mode === "lobby");
+    el.classList.toggle("low", timing() && t <= 30);
+    $("timeTxt").textContent = clock.free[worldKey] ? "Free explore" : fmt(t);
+  }
+  function tickClock(dt) {
+    if (!timing()) return;
+    clock.left[worldKey] -= dt; const t = clock.left[worldKey], sec = Math.ceil(t);
+    if (sec !== clock.sec) { clock.sec = sec; showClock(); if (sec <= 30 && sec > 0) Sfx.tick(); }
+    if (t <= 0) openReport();
+  }
+  function addTime(n) { if (!timing()) return; clock.left[worldKey] += n; showClock(); const b = $("timeBonus"); b.textContent = "+" + n + "s"; b.classList.remove("go"); void b.offsetWidth; b.classList.add("go"); }
+  const timerBtn = $("timerBtn"), paintTimerBtn = () => { timerBtn.textContent = "⏱ Timer: " + (clock.on ? "On" : "Off"); timerBtn.classList.toggle("off", !clock.on); };
+  timerBtn.onclick = () => { clock.on = !clock.on; store.set("timer", clock.on ? "1" : "0"); paintTimerBtn(); Sfx.init(); Sfx.click(); }; paintTimerBtn();
+  // time's up: a friendly report, never "game over". You can always carry on.
+  function openReport() {
+    mode = "report"; rover.v = 0;
+    $("repWorld").textContent = WD.label; $("repGhosts").textContent = sites.filter(s => found.has(s.id)).length + " / " + sites.length; $("repStars").textContent = stars.filter(s => starsGot.has(s.id)).length + " / " + stars.length;
+    $("report").classList.remove("hidden"); showClock(); sendState();
+  }
+  function keepExploring() { clock.free[worldKey] = true; $("report").classList.add("hidden"); mode = "play"; showClock(); sendState(); }
+  function tryAgain() { for (const s of sites) found.delete(s.id); for (const s of stars) starsGot.delete(s.id); resetClock(worldKey); $("report").classList.add("hidden"); setWorld(worldKey); beginCount(); }
+  $("reportKeep").onclick = keepExploring; $("reportRetry").onclick = tryAgain;
+  const tips = new Set(); let bumpT = 0;
+  function tip(id, text) { if (tips.has(id)) return; tips.add(id); toast(text, "Mars tip", "💡"); }
   $("kbStart").onclick = () => action("next");
   $("bookBtn").onclick = () => action("book");
   $("bookClose").onclick = () => action("book");
@@ -498,13 +593,13 @@ function startHost() {
     Sfx.init(); $("lobby").classList.add("hidden"); hudEls.forEach(id => $(id).classList.remove("hidden"));
     Sfx.music(worldKey); beginCount();
   }
-  function beginCount() { mode = "count"; countT = 0; countN = -1; rover.v = 0; sendState(); }
+  function beginCount() { mode = "count"; countT = 0; countN = -1; rover.v = 0; $("intro").innerHTML = "<b></b><span></span>"; $("intro").firstChild.textContent = (worldKey === "moon" ? "🌕 " : "🔴 ") + WD.label; $("intro").lastChild.textContent = WD.level; $("intro").classList.add("show"); showClock(); sendState(); }
   function tickCount(dt) {
     countT += dt; const n = Math.floor(countT / .8);
     if (n !== countN) {
       countN = n;
       if (n < 3) { $("count").innerHTML = "<span>" + (3 - n) + "</span>"; Sfx.count(); vibe([30]); }
-      else if (n === 3) { $("count").innerHTML = "<span style='color:#3ddc6f'>GO!</span>"; Sfx.go(); vibe([120]); mode = "play"; sendState(); }
+      else if (n === 3) { $("count").innerHTML = "<span style='color:#3ddc6f'>GO!</span>"; Sfx.go(); vibe([120]); mode = "play"; $("intro").classList.remove("show"); sendState(); }
     }
   }
   function clearCount(dt) { if (countN >= 3) { countT += dt; if (countT > 3.3) { $("count").innerHTML = ""; countN = -1; } } }
@@ -541,7 +636,11 @@ function startHost() {
     const k = cardKind; card = null; mode = "play";
     if (k === "site") {
       updateHud();
-      if (sites.every(s => found.has(s.id))) { confetti(); Sfx.cheer(); vibe([80, 60, 80, 60, 200]); openCard(WORLD_DONE[worldKey], "world"); }
+      if (sites.every(s => found.has(s.id))) {
+        confetti(); Sfx.cheer(); vibe([80, 60, 80, 60, 200]);
+        const scored = clock.on && !clock.free[worldKey]; // the time left is the score
+        openCard(Object.assign({}, WORLD_DONE[worldKey], scored ? { wow: "Mission complete with " + fmt(clock.left[worldKey]) + " to spare!" } : {}), "world"); showClock();
+      }
     } else if (k === "world") {
       const other = worldKey === "moon" ? "mars" : "moon";
       if (!WORLDS[other].sites.every(s => found.has(s.id))) { setWorld(other); beginCount(); }
@@ -549,8 +648,8 @@ function startHost() {
     } else if (k === "deep") {
       deepI++; openDeep();
     } else if (k === "end") {
-      found.clear(); starsGot.clear(); deepSeen.clear(); mode = "lobby"; Sfx.music(null);
-      setWorld("moon"); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden"));
+      found.clear(); starsGot.clear(); deepSeen.clear(); resetClock("moon"); resetClock("mars"); mode = "lobby"; Sfx.music(null);
+      setWorld("moon"); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock();
     }
     sendState();
   }
@@ -663,16 +762,13 @@ function startHost() {
     }
     g.putImageData(im, 0, 0);
     // 3) a few soft round craters: the biggest of the real craters you can drive into
-    const [cell, prob, rmin, rmax, keep] = worldKey === "moon" ? [400, .62, 30, 140, 78] : [900, .25, 40, 110, 62];
+    // 3) soft round craters (the biggest on the Moon; every one on Mars, because there they block the way) and soft sand patches
+    const moon = worldKey === "moon", [cell, prob, rmin, rmax, keep] = moon ? [400, .62, 30, 140, 78] : [900, .25, 40, 110, 0];
+    const blob = (x, z, r, fill, ring) => { for (const o of WD.wrap ? [-W.w, 0, W.w] : [0]) { const X = (x + o + mX) * k, Y = (z + mY) * k, rr = Math.max(3, r * k); g.fillStyle = fill; g.beginPath(); g.arc(X, Y, rr, 0, 7); g.fill(); if (ring) { g.strokeStyle = ring; g.lineWidth = 1.2; g.beginPath(); g.arc(X, Y, rr, .2, 2.6); g.stroke(); } } };
+    if (!moon) for (let ix = 0; ix < W.w / 600; ix++) for (let iz = -2; iz <= Math.ceil((W.h + mY) / 600); iz++) { const sd = sandAt(ix, iz); if (sd) blob(sd.x, sd.z, sd.r, "rgba(110,44,26,.3)"); }
     for (let ix = Math.floor(-mX / cell) - 1; ix <= Math.ceil((W.w + mX) / cell); ix++) for (let iz = Math.floor(-mY / cell) - 1; iz <= Math.ceil((W.h + mY) / cell); iz++) {
-      const m = wrapI(ix, cell); if (hash(m, iz, 21) > prob) continue;
-      const q = hash(m, iz, 22), r = rmin + q * q * (rmax - rmin); if (r < keep) continue;
-      const px = (ix + .2 + .6 * hash(m, iz, 23)) * cell, pz = (iz + .2 + .6 * hash(m, iz, 24)) * cell;
-      for (const o of WD.wrap ? [-W.w, 0, W.w] : [0]) {
-        const X = (px + o + mX) * k, Y = (pz + mY) * k, rr = Math.max(3, r * k);
-        g.fillStyle = B.crater; g.beginPath(); g.arc(X, Y, rr, 0, 7); g.fill();
-        g.strokeStyle = B.ring; g.lineWidth = 1.2; g.beginPath(); g.arc(X, Y, rr, .2, 2.6); g.stroke();
-      }
+      const cr = craterCell(ix, iz, cell, prob, rmin, rmax); if (!cr || cr.r < keep) continue;
+      blob((ix + cr.fx) * cell, (iz + cr.fz) * cell, cr.r, B.crater, B.ring);
     }
     Object.assign(mini, { terrain: c, mX, mY, ready: true });
   }
@@ -798,6 +894,7 @@ function startHost() {
     time += dt;
     if (toastT > 0 && (toastT -= dt) <= 0) $("toast").classList.remove("show");
     if (bookOpen) return;
+    if (mode === "play") tickClock(dt);
     if (mode === "count") tickCount(dt); else clearCount(dt);
     if (mode === "revive") tickRevive(dt);
     const playing = mode === "play", inp = playing ? input() : { s: 0, g: 0, r: 0 };
@@ -805,10 +902,10 @@ function startHost() {
 
     // --- driving (on the flat map, same as before) ---
     rover.boost = Math.max(0, rover.boost - dt);
-    const top = WD.maxV * (rover.boost > 0 ? 1.55 : 1);
+    const top = WD.maxV * (rover.boost > 0 ? 1.55 : 1) * (rover.sand ? .3 : 1);
     if (playing) {
       // pedals are analog: a light squeeze of a trigger drives slowly, a full press drives at full speed
-      const target = inp.g > 0 ? top * inp.g : inp.r > 0 ? -WD.maxV * .45 * inp.r : 0, acc = target === 0 ? 420 : rover.boost > 0 ? 900 : inp.r > 0 && rover.v > 0 ? 360 + 340 * inp.r : 360;
+      const target = inp.g > 0 ? top * inp.g : inp.r > 0 ? -WD.maxV * .45 * inp.r : 0, acc = rover.sand && Math.abs(rover.v) > top ? 700 : target === 0 ? 420 : rover.boost > 0 ? 900 : inp.r > 0 && rover.v > 0 ? 360 + 340 * inp.r : 360;
       rover.v += clamp(target - rover.v, -acc * dt, acc * dt);
     } else rover.v *= Math.pow(.02, dt);
     rover.steer = lerp(rover.steer, inp.s, 1 - Math.exp(-10 * dt));
@@ -817,10 +914,19 @@ function startHost() {
     rover.x += Math.cos(rover.h) * rover.v * dt; rover.y += Math.sin(rover.h) * rover.v * dt;
     if (!WD.wrap) rover.x = clamp(rover.x, 40, W.w - 40);
     rover.y = clamp(rover.y, 40, W.h - 40);
-    for (const m of mesaList) { // bump into mesas instead of driving through them
-      const dx = rover.x - m.x, dz = rover.y - m.z, d = Math.hypot(dx, dz), min = m.r + 16;
-      if (d < min && d > 0) { rover.x = m.x + dx / d * min; rover.y = m.z + dz / d * min; if (Math.abs(rover.v) > 120) { rover.v *= .6; shake = Math.max(shake, .5); Sfx.bump(.4); } }
+    // Mars obstacles: bump off mesas, boulders and crater rims; soft sand slows the rover right down
+    rover.sand = false; bumpT -= dt;
+    for (const o of solids) {
+      const dx = rover.x - o.x, dz = rover.y - o.z, d = Math.hypot(dx, dz), min = o.r + 16; if (d >= min || d === 0) continue;
+      const nx = dx / d, nz = dz / d, headOn = -(Math.cos(rover.h) * nx + Math.sin(rover.h) * nz) * Math.sign(rover.v || 1);
+      rover.x = o.x + nx * min; rover.y = o.z + nz * min;
+      if (Math.abs(rover.v) > 70 && headOn > .2) {
+        rover.v = o.kind !== "mesa" && headOn > .6 ? -rover.v * .35 : rover.v * .75; // a small bounce straight back, or a glancing slide. No damage.
+        if (bumpT <= 0) { bumpT = .35; shake = Math.max(shake, .4); Sfx.bump(.35); vibe([20]); Pad.rumble("bump"); bodyVel += 12; }
+        if (o.kind === "crater") tip("crater", "This crater's rim is too steep to climb. Find the gentle way around!");
+      }
     }
+    for (const sd of sands) if (Math.hypot(rover.x - sd.x, rover.y - sd.z) < sd.r) { rover.sand = true; tip("sand", "Careful! Spirit the rover got stuck in soft sand like this in 2009."); }
 
     const c = Math.cos(rover.h), s = Math.sin(rover.h), sp = Math.abs(rover.v);
     // --- up and down: follow the ground, and float after bumps (low gravity!) ---
@@ -887,7 +993,7 @@ function startHost() {
       if (starsGot.has(st.id)) continue;
       st.g.position.set(rx(st.x), st.h0 + 20 + Math.sin(time * 2.5 + st.x) * 3, st.y); st.mesh.rotation.y = time * 2.2;
       if (playing && Math.hypot(wdx(st.x - rover.x), st.y - rover.y) < 36) {
-        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([30, 30, 30]); Pad.rumble("star"); updateHud();
+        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); vibe([30, 30, 30]); Pad.rumble("star"); addTime(10); updateHud();
         for (let i = 0; i < 50; i++) { const a = rnd(0, 6.3), b = rnd(-1, 1.4), v = rnd(40, 140); spark.emit(st.g.position.x, st.g.position.y, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.5, 1.1), rnd(4, 8), 1, .85, .3, 1, 120, 1, -4); }
       }
     }
@@ -898,6 +1004,11 @@ function startHost() {
       const u = d.userData;
       if (u.far || Math.hypot(u.x - rover.x, u.z - rover.y) > 1500) { const a = rover.h + rnd(-1.1, 1.1), r = rnd(500, 1100); u.x = rover.x + Math.cos(a) * r; u.z = rover.y + Math.sin(a) * r; u.far = false; u.vx = rnd(25, 60); u.vz = rnd(-30, 30); }
       u.x += u.vx * dt; u.z += u.vz * dt; d.position.set(u.x, H(u.x, u.z), u.z);
+      if (playing && Math.hypot(rover.x - u.x, rover.y - u.z) < 38) { // driving through one gives the rover a gentle sideways shove
+        const px = -Math.sin(rover.h), pz = Math.cos(rover.h), side = (rover.x - u.x) * px + (rover.y - u.z) * pz >= 0 ? 1 : -1;
+        rover.x += px * side * 90 * dt; rover.y += pz * side * 90 * dt; rover.h += side * .5 * dt; shake = Math.max(shake, .18);
+        tip("devil", "Dust devils on Mars are real, and their wind sometimes cleaned dust off rovers' solar panels!");
+      }
       d.children.forEach((ch, i) => { ch.rotation.y = time * (3 + i * .4) + u.seed; ch.position.x = Math.sin(time * 1.7 + i * .7 + u.seed) * (2 + i * 2.2); ch.position.z = Math.cos(time * 1.3 + i * .9 + u.seed) * (2 + i * 2.2); });
       if (Math.random() < .5) { const a = rnd(0, 6.3); dust.emit(u.x + Math.cos(a) * 8, d.position.y + 2, u.z + Math.sin(a) * 8, Math.cos(a + 1.6) * 30, rnd(15, 40), Math.sin(a + 1.6) * 30, 1.6, 8, .9, .64, .44, .3, -4, .8, 10); }
     }
@@ -999,7 +1110,7 @@ function startHost() {
   setWorld("moon");
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
-    rover, found, starsGot, deepSeen, setWorld, input, pad: () => pad, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
+    rover, found, starsGot, deepSeen, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer
   };
   let last = performance.now(), slow = 0, frames = 0;

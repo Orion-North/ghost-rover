@@ -560,7 +560,7 @@ function startHost() {
     if (a === "next") {
       if (mode === "report") keepExploring();
       else if (mode === "lobby") startPlay();
-      else if (mode === "card") closeCard();
+      else if (mode === "card") { if (cardUnlockAt) return; closeCard(); } // still in the 5-second reading pause
     } else if (a === "world") {
       if (mode === "lobby") setWorld(worldKey === "moon" ? "mars" : "moon");
       else if (mode === "play") { setWorld(worldKey === "moon" ? "mars" : "moon"); beginCount(); }
@@ -654,10 +654,28 @@ function startHost() {
     $("cardRibbon").classList.toggle("hidden", kind === "world");
     const other = worldKey === "moon" ? "mars" : "moon", otherDone = WORLDS[other].sites.every(s => found.has(s.id));
     $("cardNext").textContent = kind === "world" ? (otherDone ? "Deep space signals… 📡" : other === "mars" ? "Launch to Mars 🚀" : "Fly to the Moon 🚀") : kind === "end" ? "Play again ↺" : kind === "deep" ? "Next signal 📡" : "Keep exploring ▶";
+    startCardWait(site, kind);
     $("card").classList.toggle("deep", kind === "deep" || kind === "end");
     $("cardTag").classList.toggle("hidden", !$("cardTag").textContent);
     Models.thumbShow(site.type, site);
     $("card").classList.remove("hidden"); $("card").querySelector(".box").scrollTop = 0; sendState();
+  }
+  // ---- reading pause: the first time a ghost's or deep-space card opens, its main button waits 5 seconds ----
+  let cardUnlockAt = 0; const cardSeen = new Set(), CARD_WAIT = 5;
+  function startCardWait(site, kind) {
+    const b = $("cardNext"), waits = (kind === "site" || kind === "deep" || kind === "end") && !!site.id && !cardSeen.has(site.id);
+    if (site.id && kind !== "world") cardSeen.add(site.id);
+    cardUnlockAt = waits ? performance.now() + CARD_WAIT * 1000 : 0;
+    b.classList.remove("pop"); b.classList.toggle("locked", waits); b.disabled = waits; b.style.setProperty("--p", 0);
+    if (waits) { const lk = document.createElement("span"); lk.className = "lk"; lk.innerHTML = "<b>" + CARD_WAIT + "</b>"; b.prepend(lk); }
+  }
+  function tickCardWait() {
+    if (!cardUnlockAt) return;
+    const b = $("cardNext"), left = (cardUnlockAt - performance.now()) / 1000;
+    if (mode !== "card") { cardUnlockAt = 0; return; }
+    if (left > 0) { b.style.setProperty("--p", 1 - left / CARD_WAIT); const n = b.querySelector(".lk b"); if (n) n.textContent = Math.ceil(left); return; }
+    cardUnlockAt = 0; b.disabled = false; const lk = b.querySelector(".lk"); if (lk) lk.remove();
+    b.classList.remove("locked"); void b.offsetWidth; b.classList.add("pop"); Sfx.chime(); sendState(true);
   }
   function closeCard() {
     window.speechSynthesis && speechSynthesis.cancel();
@@ -883,7 +901,7 @@ function startHost() {
   let lastSent = "";
   function sendState(force) {
     const st = { t: "state", mode: bookOpen ? "book" : mode, world: WD.short, sig, dist: sigDist, found: sites.filter(s => found.has(s.id)).length, total: sites.length,
-      stars: stars.filter(s => starsGot.has(s.id)).length, card: card ? card.name : "" };
+      stars: stars.filter(s => starsGot.has(s.id)).length, card: card ? card.name : "", wait: cardUnlockAt ? Math.max(1, Math.ceil((cardUnlockAt - performance.now()) / 1000)) : 0 };
     const key = JSON.stringify(st); if (!force && key === lastSent) return; lastSent = key; send(st);
   }
   setInterval(() => sendState(true), 1000);
@@ -1140,13 +1158,13 @@ function startHost() {
   setWorld("moon");
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
-    rover, found, starsGot, deepSeen, tasksDone, Tasks, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
+    rover, found, starsGot, deepSeen, tasksDone, cardSeen, cardLocked: () => !!cardUnlockAt, Tasks, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer
   };
   let last = performance.now(), slow = 0, frames = 0;
   function frame(now) {
     const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
-    pollPad();
+    pollPad(); tickCardWait();
     if (Tasks.active()) stepTask(Math.min(.05, raw));
     update(dt);
     if (Math.abs(rover.x - tcx) > 120 || Math.abs(rover.y - tcz) > 120) updateTerrain(Math.round(rover.x / 120) * 120, Math.round(rover.y / 120) * 120);

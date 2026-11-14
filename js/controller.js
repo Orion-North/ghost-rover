@@ -28,8 +28,8 @@ function startController(hostId) {
     if (d.t === "state") {
       const isCard = d.mode === "card", lobby = d.mode === "lobby";
       $("bNext").classList.toggle("hidden", !(isCard || lobby || d.mode === "book" || d.mode === "report"));
-      $("bNext").textContent = lobby ? "START ▶" : d.mode === "book" ? "CLOSE ✕" : "NEXT ▶";
-      $("bNext").className = "btn go" + ($("bNext").classList.contains("hidden") ? " hidden" : "");
+      $("bNext").textContent = lobby ? "START ▶" : d.mode === "book" ? "CLOSE ✕" : isCard && d.wait ? "NEXT in " + d.wait + "…" : "NEXT ▶";
+      $("bNext").className = "btn go" + ($("bNext").classList.contains("hidden") ? " hidden" : "") + (isCard && d.wait ? " wait" : "");
       $("bRead").classList.toggle("hidden", !isCard);
       $("bWorld").textContent = lobby ? "World: " + d.world : "Moon ⇄ Mars";
       $("wheel").classList.toggle("near", d.mode === "play" && d.sig >= 3);

@@ -815,7 +815,7 @@ function startHost() {
   }
 
   let toastT = 0;
-  function toast(txt, title, ico) { $("toastTxt").textContent = txt; $("toastTitle").textContent = title || "Science star!"; $("toastIco").textContent = ico || "⭐"; $("toast").classList.add("show"); toastT = title ? 4 : 8; }
+  function toast(txt, title, ico) { $("toast").classList.toggle("top", mode !== "play" && mode !== "count"); $("toastTxt").textContent = txt; $("toastTitle").textContent = title || "Science star!"; $("toastIco").textContent = ico || "⭐"; $("toast").classList.add("show"); toastT = title ? 4 : 8; }
 
   // confetti (drawn on a 2D canvas above the game)
   let conf = [];

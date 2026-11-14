@@ -572,103 +572,133 @@ function startHost() {
     if (n !== sig) document.querySelectorAll("#signal .bars i").forEach((b, i) => b.classList.toggle("on", i < n));
     sig = n; sigDist = label;
   }
-  // ---- minimap: a round, north-up, flat lat/long map coloured by height ----
-  // The terrain and the rim are each drawn once to an offscreen canvas; only the markers are redrawn every frame.
-  var mini = { S: 0, dpr: 1, R: 0, Rin: 0, kx: 1, ky: 1, terrain: null, over: null, tileW: 0, ready: false, job: 0 };
-  const RIM = 18;
-  function miniH(x, z) { // the big shapes of the same ground you drive on (small bumps and dunes left out so it reads clearly)
-    const big = vn(x, z, 1200, 11), mid = vn(x, z, 300, 12);
-    return worldKey === "moon" ? (big - .5) * 60 + (mid - .5) * 16 + craters(x, z, 400, .62, 30, 140) : (big - .5) * 90 + (mid - .5) * 14;
-  }
-  const RAMPS = {
-    moon: [[0, 38, 42, 58], [.35, 92, 98, 116], [.65, 158, 164, 180], [1, 232, 235, 242]],     // dark grey seas -> light grey highlands
-    mars: [[0, 84, 20, 16], [.35, 168, 52, 26], [.68, 232, 128, 52], [1, 246, 208, 150]]      // deep red lowlands -> orange -> tan highlands
+  // ---- minimap: a round "radar" centred on the rover, north always up ----
+  // The picture-book terrain for the whole world is painted once to an offscreen canvas.
+  // Each frame we only slide that picture under the rover and redraw the markers.
+  var mini = { S: 0, dpr: 1, R: 0, Rin: 0, k: 1, range: 1, terrain: null, over: null, ready: false, job: 0, key: "" };
+  const RIM = 21;
+  const BANDS = { // low -> middle -> high ground, kept soft and low-contrast so the markers stand out
+    moon: { cols: [[134, 148, 186], [186, 193, 212], [233, 236, 244]], cuts: [.4, .63], crater: "rgba(70,80,120,.22)", ring: "rgba(255,255,255,.4)" },
+    mars: { cols: [[176, 78, 48], [226, 130, 70], [240, 196, 142]], cuts: [.4, .63], crater: "rgba(120,40,20,.24)", ring: "rgba(255,225,190,.4)" }
   };
-  function ramp(stops, t) {
-    t = clamp(t, 0, 1); let a = stops[0], b = stops[stops.length - 1];
-    for (let i = 1; i < stops.length; i++) if (t <= stops[i][0]) { a = stops[i - 1]; b = stops[i]; break; }
-    const k = (t - a[0]) / (b[0] - a[0] || 1); return [lerp(a[1], b[1], k), lerp(a[2], b[2], k), lerp(a[3], b[3], k)];
-  }
   function setupMini() {
-    const c = $("mini"), S = Math.round(Math.min(296, innerHeight * .4, innerWidth * .27)), dpr = Math.min(2, window.devicePixelRatio || 1);
-    Object.assign(mini, { S, dpr, R: S / 2, Rin: S / 2 - RIM, ready: false });
+    const c = $("mini"), S = Math.round(Math.min(340, innerHeight * .44, innerWidth * .29)), dpr = Math.min(2, window.devicePixelRatio || 1), moon = worldKey === "moon";
+    const range = moon ? 1800 : 1000; // how far the radar sees, in map units: about 450 km on the Moon, about 1,000 km on Mars
+    Object.assign(mini, { S, dpr, R: S / 2, Rin: S / 2 - RIM, range, k: (S / 2 - RIM) / range });
     c.style.width = c.style.height = S + "px"; c.width = c.height = Math.round(S * dpr);
-    c.style.setProperty("--glow", worldKey === "moon" ? "#9db8ff" : "#ff9a3c");
-    // Fit the whole map inside the circle so no landing site is ever cut off. The Moon map keeps its true shape;
-    // Mars is 360 degrees wide, so its latitude is stretched to fill the circle (it's still a flat lat/long map).
-    const asp = WD.wrap ? 4 / 3 : W.w / W.h, Rm = mini.Rin * .93, a = Rm * asp / Math.hypot(1, asp), b = Rm / Math.hypot(1, asp);
-    mini.kx = 2 * a / W.w; mini.ky = 2 * b / W.h;
+    c.style.setProperty("--glow", moon ? "#9db8ff" : "#ff9a3c");
     buildMiniOverlay();
-    clearTimeout(mini.job); mini.job = setTimeout(buildMiniTerrain, 30);
+    const key = worldKey + S; if (key !== mini.key) { mini.key = key; mini.ready = false; clearTimeout(mini.job); mini.job = setTimeout(buildMiniTerrain, 30); }
   }
   function buildMiniTerrain() {
-    const q = 1.5, S = mini.S, moon = worldKey === "moon", stops = RAMPS[worldKey], lo = moon ? -36 : -46, hi = moon ? 34 : 46, step = moon ? 14 : 15;
-    const w = Math.round((WD.wrap ? W.w * mini.kx : S) * q), h = Math.round(S * q), c = document.createElement("canvas"); c.width = w; c.height = h;
-    const g = c.getContext("2d"), im = g.createImageData(w, h), d = im.data, hs = new Float32Array(w * h);
-    for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
-      const x = WD.wrap ? px / w * W.w : W.w / 2 + (px / q - S / 2) / mini.kx, z = W.h / 2 + (py / q - S / 2) / mini.ky;
-      const v = miniH(x, z); hs[py * w + px] = v;
-      const col = ramp(stops, (v - lo) / (hi - lo)), out = z < 0 || z > W.h || (!WD.wrap && (x < 0 || x > W.w)) ? .5 : 1, i = (py * w + px) * 4;
-      d[i] = col[0] * out; d[i + 1] = col[1] * out; d[i + 2] = col[2] * out; d[i + 3] = 255;
+    const { k, range } = mini, B = BANDS[worldKey], step = 40, mX = WD.wrap ? 0 : range, mY = range; // margins so the radar can look past the map edge
+    const lw = Math.ceil((W.w + 2 * mX) / step), lh = Math.ceil((W.h + 2 * mY) / step) + 1;
+    // 1) a small, smooth height picture (one sample every 40 map units), using the same big hills as the 3D ground
+    const low = document.createElement("canvas"); low.width = lw + 2; low.height = lh;
+    const lg = low.getContext("2d"), li = lg.createImageData(lw + 2, lh);
+    for (let y = 0; y < lh; y++) for (let x = 0; x < lw + 2; x++) {
+      const wx = (x - 1) * step - mX, wz = y * step - mY, v = vn(wx, wz, 1200, 11) * .8 + vn(wx, wz, 600, 15) * .2, i = (y * (lw + 2) + x) * 4;
+      li.data[i] = li.data[i + 1] = li.data[i + 2] = clamp(v, 0, 1) * 255; li.data[i + 3] = 255;
     }
-    for (let py = 0; py < h - 1; py++) for (let px = 0; px < w; px++) { // soft contour lines where the height crosses a level
-      const i = py * w + px, l = Math.floor(hs[i] / step), r = Math.floor(hs[py * w + (px + 1) % w] / step), b = Math.floor(hs[i + w] / step);
-      if (l !== r || l !== b) { const k = i * 4, dark = moon ? .72 : .76; d[k] *= dark; d[k + 1] *= dark; d[k + 2] *= dark; }
+    lg.putImageData(li, 0, 0);
+    // 2) blow it up smoothly, then turn the heights into three flat colour bands with soft edges
+    const tw = Math.ceil(W.w * k + 2 * mX * k), th = Math.ceil((W.h + 2 * mY) * k), c = document.createElement("canvas"); c.width = tw; c.height = th;
+    const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+    g.drawImage(low, -step * k, 0, (lw + 2) * step * k, lh * step * k);
+    const lut = [], lutOut = [], sm = (a, b, v) => smooth((v - a) / (b - a)), w = .02;
+    for (let n = 0; n < 256; n++) {
+      const v = n / 255, a = sm(B.cuts[0] - w, B.cuts[0] + w, v), b = sm(B.cuts[1] - w, B.cuts[1] + w, v);
+      const col = [0, 1, 2].map(q => lerp(lerp(B.cols[0][q], B.cols[1][q], a), B.cols[2][q], b)), grey = (col[0] + col[1] + col[2]) / 3;
+      lut.push(col); lutOut.push(col.map(q => lerp(q, grey, .45) * .8)); // ground beyond the edge of the map: greyer and darker
     }
-    g.putImageData(im, 0, 0); mini.terrain = c; mini.tileW = w / q; mini.ready = true;
+    const im = g.getImageData(0, 0, tw, th), d = im.data, y0 = mY * k, y1 = (mY + W.h) * k, x0 = mX * k, x1 = (mX + W.w) * k;
+    for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
+      const i = (y * tw + x) * 4, col = (y < y0 || y > y1 || (!WD.wrap && (x < x0 || x > x1)) ? lutOut : lut)[d[i]];
+      d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2];
+    }
+    g.putImageData(im, 0, 0);
+    // 3) a few soft round craters: the biggest of the real craters you can drive into
+    const [cell, prob, rmin, rmax, keep] = worldKey === "moon" ? [400, .62, 30, 140, 78] : [900, .25, 40, 110, 62];
+    for (let ix = Math.floor(-mX / cell) - 1; ix <= Math.ceil((W.w + mX) / cell); ix++) for (let iz = Math.floor(-mY / cell) - 1; iz <= Math.ceil((W.h + mY) / cell); iz++) {
+      const m = wrapI(ix, cell); if (hash(m, iz, 21) > prob) continue;
+      const q = hash(m, iz, 22), r = rmin + q * q * (rmax - rmin); if (r < keep) continue;
+      const px = (ix + .2 + .6 * hash(m, iz, 23)) * cell, pz = (iz + .2 + .6 * hash(m, iz, 24)) * cell;
+      for (const o of WD.wrap ? [-W.w, 0, W.w] : [0]) {
+        const X = (px + o + mX) * k, Y = (pz + mY) * k, rr = Math.max(3, r * k);
+        g.fillStyle = B.crater; g.beginPath(); g.arc(X, Y, rr, 0, 7); g.fill();
+        g.strokeStyle = B.ring; g.lineWidth = 1.2; g.beginPath(); g.arc(X, Y, rr, .2, 2.6); g.stroke();
+      }
+    }
+    Object.assign(mini, { terrain: c, mX, mY, ready: true });
   }
-  function buildMiniOverlay() { // globe shading, glowing rim, curved planet name and the N for north
+  function buildMiniOverlay() { // very soft globe shading, glowing rim, curved planet name and the N for north
     const { S, dpr, R, Rin } = mini, moon = worldKey === "moon", c = document.createElement("canvas"); c.width = c.height = Math.round(S * dpr);
     const g = c.getContext("2d"); g.scale(dpr, dpr);
-    const sh = g.createRadialGradient(R - Rin * .35, R - Rin * .4, Rin * .1, R, R, Rin);
-    sh.addColorStop(0, "rgba(255,255,255,.16)"); sh.addColorStop(.55, "rgba(255,255,255,0)"); sh.addColorStop(.82, "rgba(0,0,20,.12)"); sh.addColorStop(1, "rgba(0,0,20,.55)");
+    const sh = g.createRadialGradient(R, R, Rin * .72, R, R, Rin); sh.addColorStop(0, "rgba(10,14,50,0)"); sh.addColorStop(.75, "rgba(10,14,50,.1)"); sh.addColorStop(1, "rgba(10,14,50,.38)");
     g.fillStyle = sh; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.fill();
-    const rim = g.createLinearGradient(0, 0, S, S); (moon ? ["#dbe6ff", "#9db8ff", "#6f86c9"] : ["#ffd08a", "#ff9a3c", "#e0611c"]).forEach((col, i) => rim.addColorStop(i / 2, col));
+    const hi = g.createRadialGradient(R - Rin * .4, R - Rin * .45, 0, R - Rin * .4, R - Rin * .45, Rin * .8); hi.addColorStop(0, "rgba(255,255,255,.14)"); hi.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = hi; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.fill();
+    const rim = g.createLinearGradient(0, 0, S, S); (moon ? ["#e3ebff", "#a9c0ff", "#7d94d6"] : ["#ffd898", "#ffa347", "#e8702a"]).forEach((col, i) => rim.addColorStop(i / 2, col));
     g.fillStyle = rim; g.beginPath(); g.arc(R, R, R - 1, 0, 7); g.arc(R, R, Rin, 0, 7, true); g.fill();
-    g.lineWidth = 2; g.strokeStyle = "#141a3c"; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.stroke();
-    g.strokeStyle = "rgba(255,255,255,.75)"; g.beginPath(); g.arc(R, R, R - 2, 0, 7); g.stroke();
-    // planet name, each letter turned to follow the curve
-    const name = moon ? "MOON" : "MARS", rr = Rin + RIM / 2, stepA = 15 / rr, mid = -.62;
-    g.font = "700 15px Fredoka, ui-rounded, system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = "#141a3c";
+    g.lineWidth = 2.5; g.strokeStyle = "#141a3c"; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.stroke();
+    g.lineWidth = 2; g.strokeStyle = "rgba(255,255,255,.8)"; g.beginPath(); g.arc(R, R, R - 2, 0, 7); g.stroke();
+    const name = moon ? "MOON" : "MARS", rr = Rin + RIM / 2, stepA = 17 / rr, mid = -.58;
+    g.font = "700 17px Fredoka, ui-rounded, system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = "#141a3c";
     [...name].forEach((ch, i) => { const a = mid + (i - (name.length - 1) / 2) * stepA; g.save(); g.translate(R + Math.sin(a) * rr, R - Math.cos(a) * rr); g.rotate(a); g.fillText(ch, 0, 1); g.restore(); });
-    // north marker
-    g.fillStyle = "#141a3c"; g.beginPath(); g.arc(R, RIM / 2 + 3, 11.5, 0, 7); g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
-    g.fillStyle = "#fff"; g.font = "700 14px Fredoka, ui-rounded, system-ui, sans-serif"; g.fillText("N", R, RIM / 2 + 4);
+    g.fillStyle = "#141a3c"; g.beginPath(); g.arc(R, RIM / 2 + 3, 12.5, 0, 7); g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
+    g.fillStyle = "#fff"; g.font = "700 15px Fredoka, ui-rounded, system-ui, sans-serif"; g.fillText("N", R, RIM / 2 + 4);
     mini.over = c;
   }
+  function miniGhost(g, X, Y, s, p) { // a little cyan ghost with a white outline
+    g.fillStyle = "rgba(89,216,255," + (.2 + .18 * p) + ")"; g.beginPath(); g.arc(X, Y, s * (1.45 + p * .35), 0, 7); g.fill();
+    g.beginPath(); g.arc(X, Y - s * .12, s * .82, Math.PI, 0); g.lineTo(X + s * .82, Y + s * .85);
+    for (let i = 1; i <= 3; i++) g.quadraticCurveTo(X + s * .82 - (i - .5) * s * .547, Y + s * .5, X + s * .82 - i * s * .547, Y + s * .85);
+    g.closePath(); g.lineJoin = "round";
+    g.strokeStyle = "#0c2c4a"; g.lineWidth = 5; g.stroke(); g.strokeStyle = "#fff"; g.lineWidth = 2.6; g.stroke(); g.fillStyle = "#3fcfff"; g.fill();
+    g.fillStyle = "#0c2c4a"; g.beginPath(); g.arc(X - s * .3, Y - s * .12, s * .16, 0, 7); g.arc(X + s * .3, Y - s * .12, s * .16, 0, 7); g.fill();
+  }
+  function miniStar(g, X, Y, s) { // a gold star with a dark outline
+    g.beginPath(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? s * .48 : s * 1.08; g.lineTo(X + Math.cos(a) * r, Y + Math.sin(a) * r); } g.closePath();
+    g.lineJoin = "round"; g.strokeStyle = "#3a2600"; g.lineWidth = 4; g.stroke(); g.fillStyle = "#ffd23f"; g.fill();
+  }
   function drawMini() {
-    const c = $("mini"), g = c.getContext("2d"), { S, dpr, R, Rin, kx, ky } = mini, moon = worldKey === "moon";
+    const c = $("mini"), g = c.getContext("2d"), { S, dpr, R, Rin, k } = mini, moon = worldKey === "moon";
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, S, S);
     g.save(); g.beginPath(); g.arc(R, R, Rin, 0, 7); g.clip();
-    // On Mars the map scrolls sideways so the rover stays in the middle; it repeats at the edges, so nothing jumps at 180 degrees.
-    const lonX = ((rover.x % W.w) + W.w) % W.w, py = y => R + (y - W.h / 2) * ky, off = WD.wrap ? [-W.w, 0, W.w] : [0];
-    const px = x => WD.wrap ? R + wdx(x - rover.x) * kx : R + (x - W.w / 2) * kx;
-    if (mini.ready) {
-      if (WD.wrap) for (let n = -2; n <= 2; n++) g.drawImage(mini.terrain, R - lonX * kx + n * mini.tileW, 0, mini.tileW + .5, S);
-      else g.drawImage(mini.terrain, 0, 0, S, S);
-    } else { g.fillStyle = moon ? "#5c6274" : "#a8341a"; g.fillRect(0, 0, S, S); }
-    const each = (x, y, fn) => { for (const o of off) { const X = px(x) + o * kx, Y = py(y); if (Math.hypot(X - R, Y - R) < Rin + 8) fn(X, Y); } };
-    const rX = px(rover.x), rY = py(rover.y), pulse = (time * 1.1) % 1, near = nearestUnfound();
-    if (near) { // thin dashed line to the nearest ghost still waiting
-      g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 1.6; g.setLineDash([5, 4]); g.lineDashOffset = -time * 14;
-      g.beginPath(); g.moveTo(rX, rY); g.lineTo(rX + wdx(near.s.x - rover.x) * kx, py(near.s.y)); g.stroke(); g.setLineDash([]);
+    if (mini.ready) { // slide the pre-painted world so the rover sits in the middle; on Mars it repeats east-west
+      const t = mini.terrain, lonX = WD.wrap ? ((rover.x % W.w) + W.w) % W.w : rover.x, ox = R - (lonX + mini.mX) * k, oy = R - (rover.y + mini.mY) * k;
+      if (WD.wrap) { const tw = W.w * k; for (let n = -1; n <= 1; n++) if (ox + n * tw < S && ox + (n + 1) * tw > 0) g.drawImage(t, 0, 0, t.width, t.height, ox + n * tw, oy, tw + .6, t.height); }
+      else g.drawImage(t, ox, oy);
+    } else { g.fillStyle = moon ? "#bac1d4" : "#e28246"; g.fillRect(0, 0, S, S); }
+    const GS = 9.5, edge = Rin - 29; // marker size, and how far out a marker may sit so it is never cut off
+    const place = s => { const dx = wdx(s.x - rover.x) * k, dy = (s.y - rover.y) * k, d = Math.hypot(dx, dy) || 1, f = Math.min(1, edge / d); return { X: R + dx * f, Y: R + dy * f, d, out: d > edge, a: Math.atan2(dy, dx) }; };
+    // science stars: tiny soft sparkles, only when they are well inside the circle
+    for (const s of stars) if (!starsGot.has(s.id)) { const p = place(s); if (p.d > Rin - 8) continue; g.fillStyle = "rgba(255,244,170,.95)"; g.strokeStyle = "rgba(120,80,0,.55)"; g.lineWidth = 1;
+      g.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, r = i % 2 ? 1.3 : 4; g.lineTo(p.X + Math.cos(a) * r, p.Y + Math.sin(a) * r); } g.closePath(); g.stroke(); g.fill(); }
+    // dashed cyan line to the nearest ghost still waiting (or to its icon on the rim)
+    const near = nearestUnfound();
+    if (near) { const p = place(near.s); g.setLineDash([7, 5]); g.lineDashOffset = -time * 16; g.lineCap = "round";
+      g.strokeStyle = "rgba(12,44,74,.7)"; g.lineWidth = 4.5; g.beginPath(); g.moveTo(R, R); g.lineTo(p.X, p.Y); g.stroke();
+      g.strokeStyle = "#7fe6ff"; g.lineWidth = 2.4; g.stroke(); g.setLineDash([]); }
+    // found ghosts are gold stars; they shrink away at the edge instead of being cut off
+    for (const s of sites) if (found.has(s.id)) { const p = place(s), f = clamp((edge + 10 - p.d) / 10, 0, 1); if (f > 0) miniStar(g, p.X, p.Y, GS * f); }
+    // unfound ghosts: inside the circle when in range, otherwise pinned to the rim in their real direction
+    const todo = sites.filter(s => !found.has(s.id)).map(s => [s, place(s)]).sort((a, b) => b[1].d - a[1].d);
+    for (const [s, p] of todo) {
+      const pulse = .5 + .5 * Math.sin(time * 3 + s.x * .01);
+      if (p.out) { // small arrowhead on the rim side shows it is farther that way
+        const ax = Math.cos(p.a), ay = Math.sin(p.a), tx = p.X + ax * (GS * .8 + 7), ty = p.Y + ay * (GS * .8 + 7);
+        g.beginPath(); g.moveTo(tx + ax * 5, ty + ay * 5); g.lineTo(tx - ay * 5 - ax * 2, ty + ax * 5 - ay * 2); g.lineTo(tx + ay * 5 - ax * 2, ty - ax * 5 - ay * 2); g.closePath();
+        g.lineJoin = "round"; g.strokeStyle = "#0c2c4a"; g.lineWidth = 3; g.stroke(); g.fillStyle = "#7fe6ff"; g.fill();
+        miniGhost(g, p.X, p.Y, GS * .8, pulse);
+      } else miniGhost(g, p.X, p.Y, GS, pulse);
     }
-    g.fillStyle = "rgba(255,240,160,.9)"; for (const s of stars) if (!starsGot.has(s.id)) each(s.x, s.y, (X, Y) => { g.beginPath(); g.arc(X, Y, 1.6, 0, 7); g.fill(); });
-    for (const s of sites) each(s.x, s.y, (X, Y) => {
-      if (found.has(s.id)) { // gold star
-        g.beginPath(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 3.6 : 8.2; g.lineTo(X + Math.cos(a) * r, Y + Math.sin(a) * r); } g.closePath();
-        g.fillStyle = "#ffd23f"; g.strokeStyle = "#3a2600"; g.lineWidth = 1.5; g.lineJoin = "round"; g.stroke(); g.fill();
-      } else { // glowing cyan dot with a gentle pulse
-        const p = .5 + .5 * Math.sin(time * 3 + s.x * .01);
-        g.fillStyle = "rgba(89,216,255," + (.18 + .16 * p) + ")"; g.beginPath(); g.arc(X, Y, 8 + p * 4, 0, 7); g.fill();
-        g.fillStyle = "#59d8ff"; g.strokeStyle = "#062a3a"; g.lineWidth = 1.5; g.beginPath(); g.arc(X, Y, 4.6, 0, 7); g.fill(); g.stroke();
-        g.fillStyle = "#fff"; g.beginPath(); g.arc(X - 1.2, Y - 1.2, 1.4, 0, 7); g.fill();
-      }
-    });
-    // the rover: a white arrow pointing the way it faces, with a small pulse
-    g.strokeStyle = "rgba(255,255,255," + (1 - pulse) * .8 + ")"; g.lineWidth = 2; g.beginPath(); g.arc(rX, rY, 7 + pulse * 12, 0, 7); g.stroke();
-    g.save(); g.translate(rX, rY); g.rotate(Math.atan2(Math.sin(rover.h) * ky, Math.cos(rover.h) * kx)); g.fillStyle = "#fff"; g.strokeStyle = "#141a3c"; g.lineWidth = 2.5; g.lineJoin = "round";
-    g.beginPath(); g.moveTo(11, 0); g.lineTo(-7, -7.5); g.lineTo(-3, 0); g.lineTo(-7, 7.5); g.closePath(); g.stroke(); g.fill(); g.restore();
+    // the rover: a chunky white arrow pointing the way it faces, with a soft pulse ring
+    const pr = (time * .9) % 1;
+    g.strokeStyle = "rgba(255,255,255," + (1 - pr) * .85 + ")"; g.lineWidth = 2.5; g.beginPath(); g.arc(R, R, 10 + pr * 16, 0, 7); g.stroke();
+    g.save(); g.translate(R, R); g.rotate(rover.h); g.lineJoin = "round";
+    g.beginPath(); g.moveTo(15, 0); g.lineTo(-10, -10.5); g.lineTo(-4.5, 0); g.lineTo(-10, 10.5); g.closePath();
+    g.strokeStyle = "#141a3c"; g.lineWidth = 5; g.stroke(); g.fillStyle = "#fff"; g.fill(); g.restore();
     g.restore();
     if (mini.over) g.drawImage(mini.over, 0, 0, S, S);
   }

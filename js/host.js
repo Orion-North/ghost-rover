@@ -23,6 +23,7 @@ function startHost() {
     vw = innerWidth; vh = innerHeight; renderer.setPixelRatio(quality); renderer.setSize(vw, vh, false);
     camera.aspect = vw / vh; camera.updateProjectionMatrix();
     const fx = $("fx"); fx.width = vw; fx.height = vh;
+    if (mini && mini.S) setupMini();
   }
   addEventListener("resize", resize); resize();
 
@@ -383,7 +384,7 @@ function startHost() {
          ridge(1770, 180, (i, n) => 20 + (loopNoise(i, n, 10, 9) > .55 ? 85 + loopNoise(i, n, 30, 10) * 50 : loopNoise(i, n, 5, 11) * 40), 0xb8663f, 0xe9b990)];
     ridges.forEach(r => scene.add(r));
     $("hudWorld").textContent = (moon ? "🌕 " : "🔴 ") + WD.label;
-    const mc = $("mini"); mc.width = 230; mc.height = Math.round(230 * W.h / W.w);
+    setupMini();
     document.querySelectorAll(".pick").forEach(b => b.classList.toggle("on", b.dataset.world === k));
     if (mode !== "lobby") Sfx.music(k);
     updateHud(); sendState();
@@ -571,18 +572,105 @@ function startHost() {
     if (n !== sig) document.querySelectorAll("#signal .bars i").forEach((b, i) => b.classList.toggle("on", i < n));
     sig = n; sigDist = label;
   }
-  function drawMini() {
-    const c = $("mini"), g = c.getContext("2d"), mw = c.width, mh = c.height, k = mw / W.w, moon = worldKey === "moon", m = maps[worldKey];
-    g.fillStyle = moon ? "#6b6d76" : "#a8502d"; g.fillRect(0, 0, mw, mh);
-    if (m) { const iw = m.img.width, ih = m.img.height; g.drawImage(m.img, (WD.lonMin + 180) / 360 * iw, (90 - WD.latMax) / 180 * ih, (WD.lonMax - WD.lonMin) / 360 * iw, (WD.latMax - WD.latMin) / 180 * ih, 0, 0, mw, mh); }
-    const mx = x => (((x % W.w) + W.w) % W.w) * k;
-    g.fillStyle = "#ffd23f"; for (const s of stars) if (!starsGot.has(s.id)) g.fillRect(mx(s.x) - 1.5, s.y * k - 1.5, 3, 3);
-    for (const s of sites) {
-      const ok = found.has(s.id); g.fillStyle = ok ? "#ffd23f" : "#59d8ff"; g.strokeStyle = "#141a3c"; g.lineWidth = 1.5;
-      g.beginPath(); g.arc(mx(s.x), s.y * k, ok ? 4 : 4 + Math.sin(time * 5) * 1.2, 0, 7); g.fill(); g.stroke();
+  // ---- minimap: a round, north-up, flat lat/long map coloured by height ----
+  // The terrain and the rim are each drawn once to an offscreen canvas; only the markers are redrawn every frame.
+  var mini = { S: 0, dpr: 1, R: 0, Rin: 0, kx: 1, ky: 1, terrain: null, over: null, tileW: 0, ready: false, job: 0 };
+  const RIM = 18;
+  function miniH(x, z) { // the big shapes of the same ground you drive on (small bumps and dunes left out so it reads clearly)
+    const big = vn(x, z, 1200, 11), mid = vn(x, z, 300, 12);
+    return worldKey === "moon" ? (big - .5) * 60 + (mid - .5) * 16 + craters(x, z, 400, .62, 30, 140) : (big - .5) * 90 + (mid - .5) * 14;
+  }
+  const RAMPS = {
+    moon: [[0, 38, 42, 58], [.35, 92, 98, 116], [.65, 158, 164, 180], [1, 232, 235, 242]],     // dark grey seas -> light grey highlands
+    mars: [[0, 84, 20, 16], [.35, 168, 52, 26], [.68, 232, 128, 52], [1, 246, 208, 150]]      // deep red lowlands -> orange -> tan highlands
+  };
+  function ramp(stops, t) {
+    t = clamp(t, 0, 1); let a = stops[0], b = stops[stops.length - 1];
+    for (let i = 1; i < stops.length; i++) if (t <= stops[i][0]) { a = stops[i - 1]; b = stops[i]; break; }
+    const k = (t - a[0]) / (b[0] - a[0] || 1); return [lerp(a[1], b[1], k), lerp(a[2], b[2], k), lerp(a[3], b[3], k)];
+  }
+  function setupMini() {
+    const c = $("mini"), S = Math.round(Math.min(296, innerHeight * .4, innerWidth * .27)), dpr = Math.min(2, window.devicePixelRatio || 1);
+    Object.assign(mini, { S, dpr, R: S / 2, Rin: S / 2 - RIM, ready: false });
+    c.style.width = c.style.height = S + "px"; c.width = c.height = Math.round(S * dpr);
+    c.style.setProperty("--glow", worldKey === "moon" ? "#9db8ff" : "#ff9a3c");
+    // Fit the whole map inside the circle so no landing site is ever cut off. The Moon map keeps its true shape;
+    // Mars is 360 degrees wide, so its latitude is stretched to fill the circle (it's still a flat lat/long map).
+    const asp = WD.wrap ? 4 / 3 : W.w / W.h, Rm = mini.Rin * .93, a = Rm * asp / Math.hypot(1, asp), b = Rm / Math.hypot(1, asp);
+    mini.kx = 2 * a / W.w; mini.ky = 2 * b / W.h;
+    buildMiniOverlay();
+    clearTimeout(mini.job); mini.job = setTimeout(buildMiniTerrain, 30);
+  }
+  function buildMiniTerrain() {
+    const q = 1.5, S = mini.S, moon = worldKey === "moon", stops = RAMPS[worldKey], lo = moon ? -36 : -46, hi = moon ? 34 : 46, step = moon ? 14 : 15;
+    const w = Math.round((WD.wrap ? W.w * mini.kx : S) * q), h = Math.round(S * q), c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"), im = g.createImageData(w, h), d = im.data, hs = new Float32Array(w * h);
+    for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
+      const x = WD.wrap ? px / w * W.w : W.w / 2 + (px / q - S / 2) / mini.kx, z = W.h / 2 + (py / q - S / 2) / mini.ky;
+      const v = miniH(x, z); hs[py * w + px] = v;
+      const col = ramp(stops, (v - lo) / (hi - lo)), out = z < 0 || z > W.h || (!WD.wrap && (x < 0 || x > W.w)) ? .5 : 1, i = (py * w + px) * 4;
+      d[i] = col[0] * out; d[i + 1] = col[1] * out; d[i + 2] = col[2] * out; d[i + 3] = 255;
     }
-    g.save(); g.translate(mx(rover.x), rover.y * k); g.rotate(rover.h); g.fillStyle = "#fff"; g.strokeStyle = "#141a3c"; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(8, 0); g.lineTo(-5, -5); g.lineTo(-2, 0); g.lineTo(-5, 5); g.closePath(); g.stroke(); g.fill(); g.restore();
+    for (let py = 0; py < h - 1; py++) for (let px = 0; px < w; px++) { // soft contour lines where the height crosses a level
+      const i = py * w + px, l = Math.floor(hs[i] / step), r = Math.floor(hs[py * w + (px + 1) % w] / step), b = Math.floor(hs[i + w] / step);
+      if (l !== r || l !== b) { const k = i * 4, dark = moon ? .72 : .76; d[k] *= dark; d[k + 1] *= dark; d[k + 2] *= dark; }
+    }
+    g.putImageData(im, 0, 0); mini.terrain = c; mini.tileW = w / q; mini.ready = true;
+  }
+  function buildMiniOverlay() { // globe shading, glowing rim, curved planet name and the N for north
+    const { S, dpr, R, Rin } = mini, moon = worldKey === "moon", c = document.createElement("canvas"); c.width = c.height = Math.round(S * dpr);
+    const g = c.getContext("2d"); g.scale(dpr, dpr);
+    const sh = g.createRadialGradient(R - Rin * .35, R - Rin * .4, Rin * .1, R, R, Rin);
+    sh.addColorStop(0, "rgba(255,255,255,.16)"); sh.addColorStop(.55, "rgba(255,255,255,0)"); sh.addColorStop(.82, "rgba(0,0,20,.12)"); sh.addColorStop(1, "rgba(0,0,20,.55)");
+    g.fillStyle = sh; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.fill();
+    const rim = g.createLinearGradient(0, 0, S, S); (moon ? ["#dbe6ff", "#9db8ff", "#6f86c9"] : ["#ffd08a", "#ff9a3c", "#e0611c"]).forEach((col, i) => rim.addColorStop(i / 2, col));
+    g.fillStyle = rim; g.beginPath(); g.arc(R, R, R - 1, 0, 7); g.arc(R, R, Rin, 0, 7, true); g.fill();
+    g.lineWidth = 2; g.strokeStyle = "#141a3c"; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.stroke();
+    g.strokeStyle = "rgba(255,255,255,.75)"; g.beginPath(); g.arc(R, R, R - 2, 0, 7); g.stroke();
+    // planet name, each letter turned to follow the curve
+    const name = moon ? "MOON" : "MARS", rr = Rin + RIM / 2, stepA = 15 / rr, mid = -.62;
+    g.font = "700 15px Fredoka, ui-rounded, system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = "#141a3c";
+    [...name].forEach((ch, i) => { const a = mid + (i - (name.length - 1) / 2) * stepA; g.save(); g.translate(R + Math.sin(a) * rr, R - Math.cos(a) * rr); g.rotate(a); g.fillText(ch, 0, 1); g.restore(); });
+    // north marker
+    g.fillStyle = "#141a3c"; g.beginPath(); g.arc(R, RIM / 2 + 3, 11.5, 0, 7); g.fill(); g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
+    g.fillStyle = "#fff"; g.font = "700 14px Fredoka, ui-rounded, system-ui, sans-serif"; g.fillText("N", R, RIM / 2 + 4);
+    mini.over = c;
+  }
+  function drawMini() {
+    const c = $("mini"), g = c.getContext("2d"), { S, dpr, R, Rin, kx, ky } = mini, moon = worldKey === "moon";
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, S, S);
+    g.save(); g.beginPath(); g.arc(R, R, Rin, 0, 7); g.clip();
+    // On Mars the map scrolls sideways so the rover stays in the middle; it repeats at the edges, so nothing jumps at 180 degrees.
+    const lonX = ((rover.x % W.w) + W.w) % W.w, py = y => R + (y - W.h / 2) * ky, off = WD.wrap ? [-W.w, 0, W.w] : [0];
+    const px = x => WD.wrap ? R + wdx(x - rover.x) * kx : R + (x - W.w / 2) * kx;
+    if (mini.ready) {
+      if (WD.wrap) for (let n = -2; n <= 2; n++) g.drawImage(mini.terrain, R - lonX * kx + n * mini.tileW, 0, mini.tileW + .5, S);
+      else g.drawImage(mini.terrain, 0, 0, S, S);
+    } else { g.fillStyle = moon ? "#5c6274" : "#a8341a"; g.fillRect(0, 0, S, S); }
+    const each = (x, y, fn) => { for (const o of off) { const X = px(x) + o * kx, Y = py(y); if (Math.hypot(X - R, Y - R) < Rin + 8) fn(X, Y); } };
+    const rX = px(rover.x), rY = py(rover.y), pulse = (time * 1.1) % 1, near = nearestUnfound();
+    if (near) { // thin dashed line to the nearest ghost still waiting
+      g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 1.6; g.setLineDash([5, 4]); g.lineDashOffset = -time * 14;
+      g.beginPath(); g.moveTo(rX, rY); g.lineTo(rX + wdx(near.s.x - rover.x) * kx, py(near.s.y)); g.stroke(); g.setLineDash([]);
+    }
+    g.fillStyle = "rgba(255,240,160,.9)"; for (const s of stars) if (!starsGot.has(s.id)) each(s.x, s.y, (X, Y) => { g.beginPath(); g.arc(X, Y, 1.6, 0, 7); g.fill(); });
+    for (const s of sites) each(s.x, s.y, (X, Y) => {
+      if (found.has(s.id)) { // gold star
+        g.beginPath(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 3.6 : 8.2; g.lineTo(X + Math.cos(a) * r, Y + Math.sin(a) * r); } g.closePath();
+        g.fillStyle = "#ffd23f"; g.strokeStyle = "#3a2600"; g.lineWidth = 1.5; g.lineJoin = "round"; g.stroke(); g.fill();
+      } else { // glowing cyan dot with a gentle pulse
+        const p = .5 + .5 * Math.sin(time * 3 + s.x * .01);
+        g.fillStyle = "rgba(89,216,255," + (.18 + .16 * p) + ")"; g.beginPath(); g.arc(X, Y, 8 + p * 4, 0, 7); g.fill();
+        g.fillStyle = "#59d8ff"; g.strokeStyle = "#062a3a"; g.lineWidth = 1.5; g.beginPath(); g.arc(X, Y, 4.6, 0, 7); g.fill(); g.stroke();
+        g.fillStyle = "#fff"; g.beginPath(); g.arc(X - 1.2, Y - 1.2, 1.4, 0, 7); g.fill();
+      }
+    });
+    // the rover: a white arrow pointing the way it faces, with a small pulse
+    g.strokeStyle = "rgba(255,255,255," + (1 - pulse) * .8 + ")"; g.lineWidth = 2; g.beginPath(); g.arc(rX, rY, 7 + pulse * 12, 0, 7); g.stroke();
+    g.save(); g.translate(rX, rY); g.rotate(Math.atan2(Math.sin(rover.h) * ky, Math.cos(rover.h) * kx)); g.fillStyle = "#fff"; g.strokeStyle = "#141a3c"; g.lineWidth = 2.5; g.lineJoin = "round";
+    g.beginPath(); g.moveTo(11, 0); g.lineTo(-7, -7.5); g.lineTo(-3, 0); g.lineTo(-7, 7.5); g.closePath(); g.stroke(); g.fill(); g.restore();
+    g.restore();
+    if (mini.over) g.drawImage(mini.over, 0, 0, S, S);
   }
 
   // ------------------------------------------------------------------
@@ -833,7 +921,7 @@ function startHost() {
   // main loop
   // ------------------------------------------------------------------
   setWorld("moon");
-  if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); }).catch(() => { });
+  if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
     rover, found, starsGot, deepSeen, setWorld, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer

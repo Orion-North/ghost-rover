@@ -71,7 +71,7 @@ Cartoon:
 
 ## Real maps (optional)
 
-To tint the ground and fill the minimap with real NASA imagery, put a full-globe equirectangular image (longitude -180 to 180, centred on 0) next to `index.html` named `moon.jpg` or `mars.jpg`. For example, the colour map from NASA's CGI Moon Kit, or a Mars global mosaic. The game picks them up automatically. Ground tinting only works when the game is served from a web address, not when opened as a file.
+To tint the ground with real NASA imagery, put a full-globe equirectangular image (longitude -180 to 180, centred on 0) next to `index.html` named `moon.jpg` or `mars.jpg`. For example, the colour map from NASA's CGI Moon Kit, or a Mars global mosaic. The game picks them up automatically. Ground tinting only works when the game is served from a web address, not when opened as a file.
 
 ## Editing the stories
 

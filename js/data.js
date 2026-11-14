@@ -15,7 +15,7 @@ const WORLDS = {
   moon: {
     label: "The Moon", short: "Moon", lonMin: -45, lonMax: 45, latMin: -35, latMax: 40, ppd: 120, wrap: false,
     kmPerDeg: 30.3, maxV: 300, gravity: 120, start: [5, 0],
-    level: "Level 1 · Easy", timeLimit: 240, // seconds on the mission timer
+    level: "Level 1 · Easy", timeLimit: 180, // seconds on the mission timer
     labels: [
       ["Sea of Tranquility", 8.5, 31.4], ["Sea of Serenity", 28, 17.5], ["Sea of Rains", 32.8, -15.6],
       ["Copernicus Crater", 9.6, -20.1], ["Sea of Clouds", -21.3, -16.6], ["Ocean of Storms", -1, -38],
@@ -82,7 +82,7 @@ const WORLDS = {
   mars: {
     label: "Mars", short: "Mars", lonMin: -180, lonMax: 180, latMin: -35, latMax: 78, ppd: 60, wrap: true,
     kmPerDeg: 59.3, maxV: 340, gravity: 275, start: [12, -60],
-    level: "Level 2 · Harder", timeLimit: 420,
+    level: "Level 2 · Harder", timeLimit: 300,
     labels: [
       ["Olympus Mons", 18.65, -133.8], ["Valles Marineris", -13.9, -59.2], ["Gale Crater", -5.4, 137.8],
       ["Chryse Planitia", 28.4, -40], ["Utopia Planitia", 46.7, 117.5], ["Elysium Mons", 25.0, 147.2],

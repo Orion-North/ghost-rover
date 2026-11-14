@@ -127,6 +127,20 @@ b,h1,h2,h3{font-weight:700}
 
 #card.deep{background:radial-gradient(1.5px 1.5px at 12% 20%,#fff,transparent),radial-gradient(1.5px 1.5px at 30% 75%,#fff,transparent),radial-gradient(2px 2px at 48% 12%,#cfe,transparent),radial-gradient(1.5px 1.5px at 66% 88%,#fff,transparent),radial-gradient(2px 2px at 82% 30%,#fff,transparent),radial-gradient(1.5px 1.5px at 92% 64%,#fec,transparent),radial-gradient(1.5px 1.5px at 6% 90%,#fff,transparent),radial-gradient(ellipse at 70% 20%,#2a1b5e,#05061a 70%)}
 
+/* mission tasks */
+#task{z-index:11;background:rgba(10,12,34,.6)}
+.taskbox{max-width:min(900px,calc((100vh - 250px) * 1.78 + 50px));padding:16px 22px}
+.taskhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.taskhead .kicker{display:inline-block;background:var(--orange);color:#3a1a00;border-radius:999px;padding:3px 14px;font-weight:700;letter-spacing:1px;font-size:14px;text-transform:uppercase}
+.taskhead h2{font-size:38px;margin:6px 0 0;line-height:1}
+.taskhead p{margin:4px 0 0;color:var(--dim);font-size:18px}
+.taskstage{position:relative;margin-top:12px;border:5px solid #fff;border-radius:24px;overflow:hidden;background:#000}
+#taskCv{display:block;width:100%;aspect-ratio:16/9;touch-action:none;cursor:pointer}
+#taskStamp{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-8deg) scale(2.5);opacity:0;background:var(--go);color:#053214;border:6px solid #fff;border-radius:20px;padding:12px 26px;font-size:40px;font-weight:700;box-shadow:0 8px 0 rgba(0,0,0,.3);pointer-events:none;transition:all .35s cubic-bezier(.2,1.6,.4,1);white-space:nowrap}
+#taskStamp.show{opacity:1;transform:translate(-50%,-50%) rotate(-8deg) scale(1)}
+.taskbar{height:22px;margin-top:12px;border-radius:999px;background:#0d1230;border:3px solid #fff;overflow:hidden}
+.taskbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--go),var(--gold));border-radius:999px;transition:width .15s}
+
 /* timer, level intro, mission report */
 #hudTime{font-size:27px;padding:5px 20px;position:relative;border-color:var(--gold)}
 #hudTime b{color:#fff;font-variant-numeric:tabular-nums}
@@ -290,7 +304,7 @@ b,h1,h2,h3{font-weight:700}
       <div class="kicker" style="display:inline-block;background:var(--ghost);color:#04283a;border-radius:999px;padding:3px 14px;font-weight:700;letter-spacing:1px;font-size:14px;text-transform:uppercase">Time's up on <span id="repWorld"></span></div>
       <h2 style="font-size:44px;margin:10px 0 4px">📋 Mission Report</h2>
       <p style="color:var(--dim);font-size:19px;margin:0 0 18px">Great driving, explorer! Here's what you found so far.</p>
-      <div class="repStats"><div><span>👻</span><b id="repGhosts">0 / 0</b><small>ghosts found</small></div><div><span>⭐</span><b id="repStars">0 / 0</b><small>science stars</small></div></div>
+      <div class="repStats"><div><span>👻</span><b id="repGhosts">0 / 0</b><small>ghosts found</small></div><div><span>⭐</span><b id="repStars">0 / 0</b><small>science stars</small><small id="repBonus" style="display:block;color:var(--go)"></small></div></div>
       <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:24px">
         <button class="btn go" id="reportKeep">Keep exploring ▶</button>
         <button class="btn alt" id="reportRetry">Try again ↺</button>
@@ -354,7 +368,9 @@ b,h1,h2,h3{font-weight:700}
 (function () {
   const join = new URLSearchParams(location.search).get("join");
   if (join) { startController(join); return; }
-  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/gamepad.js", "js/host.js"];
+  const tasks = ["apollo11-land-eagle", "apollo17-fix-fender", "spirit-broken-wheel", "ingenuity-first-flight", "surveyor3-soft-landing", "apollo14-laser-mirror", "apollo15-unfold-rover",
+    "apollo16-grand-prix", "viking1-feed-lab", "viking2-focus-camera", "sojourner-roll-out", "opportunity-catch-wind", "phoenix-dig-ice", "insight-seismometer"]; // one file per mission task
+  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/gamepad.js", "js/minigames/core.js"].concat(tasks.map(t => "js/minigames/" + t + ".js"), ["js/host.js"]);
   (function next() {
     if (!files.length) { startHost(); return; }
     const s = document.createElement("script"); s.src = files.shift(); s.onload = next;

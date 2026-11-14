@@ -57,6 +57,14 @@ You can also just double-click `index.html` to play with the keyboard (no phone)
 
 The ALSEP in the game is the Apollo 14 one. The Apollo 12 ALSEP sits about 180 m from Surveyor 3, which is the same spot at this map's scale.
 
+## Levels, timer and mission tasks
+
+- **Moon = Level 1 · Easy.** Gentle hills and a few small rocks. Nothing blocks the rover.
+- **Mars = Level 2 · Harder.** Real Mars hazards: boulders to steer around, soft sand that slows you right down (the hazard that trapped Spirit in 2009), craters with steep rims that push you back, and dust devils that nudge you sideways. Every ghost and star is kept clear, and a test checks that each one can be reached.
+- **Mission timer:** 3:00 on the Moon and 5:00 on Mars. It pauses during story cards, mission tasks, the sticker book and the countdown. Science stars and finished tasks each add 10 seconds. Under 30 seconds it turns orange with a soft tick. If time runs out, a friendly Mission Report offers "Keep exploring" (no timer) or "Try again". The timer can be turned off on the title screen. Change the times with `timeLimit` in `js/data.js`.
+- **Mission tasks:** when a ghost wakes up, a short hands-on job based on what that machine really did comes before its story. Steer to move the hand and hold DRIVE (or Enter, Cross, or the mouse) to grab. Tasks can't be failed: after about 30 seconds the targets get bigger, and the bar fills by itself if needed. There is always a Skip button. Finishing gives a bonus star (+10s) and a task sticker.
+- Each task is its own file in `js/minigames/`. To add one, copy a task file, change the id to a machine's id from `js/data.js`, and add the file name to the `tasks` list in `index.html`. `js/minigames/core.js` explains the helpers.
+
 ## What's real and what's cartoon
 
 Real:

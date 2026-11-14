@@ -191,6 +191,9 @@ function startHost() {
   }
   const boulders = new T.InstancedMesh(new T.IcosahedronGeometry(1, 0), new T.MeshLambertMaterial({ flatShading: true }), 160);
   boulders.castShadow = true; boulders.frustumCulled = false; scene.add(boulders);
+  const rimGeo = new T.TorusGeometry(1, .16, 5, 28); rimGeo.rotateX(Math.PI / 2);
+  const rims = new T.InstancedMesh(rimGeo, new T.MeshLambertMaterial({ color: 0x9c4426, flatShading: true }), 40); // raised crater rims you can see coming
+  rims.castShadow = true; rims.frustumCulled = false; rims.count = 0; scene.add(rims);
   const ripples = new T.InstancedMesh(new T.BoxGeometry(1, 1, 1), new T.MeshLambertMaterial({ color: 0x7c3520, flatShading: true }), 700);
   ripples.frustumCulled = false; scene.add(ripples);
 
@@ -207,11 +210,14 @@ function startHost() {
     }
     rocks.count = n; rocks.instanceMatrix.needsUpdate = true; if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
 
-    let nm = 0, nb = 0, nr = 0;
+    let nm = 0, nb = 0, nr = 0, nc = 0;
     for (const o of solids) {
       if (o.kind === "mesa" && nm < 60) {
         dummy.position.set(o.x, H(o.x, o.z) - 20, o.z); dummy.rotation.set(0, hash(o.m, o.iz, 46) * 6, 0); dummy.scale.set(o.R, o.hgt + 20, o.R * (.7 + hash(o.m, o.iz, 47) * .5)); dummy.updateMatrix();
         mesas.setMatrixAt(nm, dummy.matrix); const v = .85 + hash(o.m, o.iz, 48) * .3; mesas.setColorAt(nm++, tmpC.setRGB(.7 * v, .33 * v, .2 * v));
+      } else if (o.kind === "crater" && nc < 40) {
+        let lo = 1e9; for (let a = 0; a < 6.3; a += .8) lo = Math.min(lo, H(o.x + Math.cos(a) * o.r, o.z + Math.sin(a) * o.r));
+        dummy.position.set(o.x, lo + o.r * .04, o.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(o.r * 1.02, o.r * .9, o.r * 1.02); dummy.updateMatrix(); rims.setMatrixAt(nc++, dummy.matrix);
       } else if (o.kind === "boulder" && nb < 160) {
         const q = hash(o.m, o.iz, 55); dummy.position.set(o.x, H(o.x, o.z) + o.r * .3, o.z); dummy.rotation.set(q * 5, q * 30, q * 11); dummy.scale.set(o.r * 1.05, o.r * (.8 + q * .3), o.r * 1.05); dummy.updateMatrix();
         boulders.setMatrixAt(nb, dummy.matrix); const v = .8 + q * .3; boulders.setColorAt(nb++, tmpC.setRGB(.47 * v, .2 * v, .15 * v));
@@ -225,6 +231,7 @@ function startHost() {
       }
     }
     mesas.count = nm; mesas.instanceMatrix.needsUpdate = true; if (mesas.instanceColor) mesas.instanceColor.needsUpdate = true;
+    rims.count = nc; rims.instanceMatrix.needsUpdate = true;
     boulders.count = nb; boulders.instanceMatrix.needsUpdate = true; if (boulders.instanceColor) boulders.instanceColor.needsUpdate = true;
     ripples.count = nr; ripples.instanceMatrix.needsUpdate = true;
   }
@@ -470,12 +477,33 @@ function startHost() {
     if (k === "b") action("book");
     if (k === "n") action("mute");
     if (k === "escape" && bookOpen) action("book");
+    if (k === "escape" && Tasks.active()) Tasks.skip();
   });
   addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
   addEventListener("pointerdown", () => Sfx.init());
   // Keyboard, phone and game controller are all read every frame. Whichever one is being used wins:
   // the strongest steering and the hardest pedal press count, so nobody has to switch anything.
   let pad = null, ctrlNow = "";
+
+  // ---- mission tasks: a short hands-on job when a ghost wakes up, before its story card ----
+  let taskSite = null, taskPulse = 0; const tasksDone = new Set();
+  const taskSfx = { done: () => Sfx.found(), snap: () => Sfx.star(), bump: () => Sfx.bump(.3) };
+  function startTask(st) {
+    if (!Tasks.has(st.id)) { openCard(st, "site"); return; }
+    mode = "task"; taskSite = st; rover.v = 0; $("toast").classList.remove("show"); toastT = 0;
+    Tasks.start(st.id, { world: worldKey, sfx: n => (taskSfx[n] || (() => { }))(), buzz: k => { Pad.rumble(k); vibe(k === "found" ? [80, 50, 120] : [25]); },
+      onEnd: ok => {
+        taskSite = null;
+        if (ok) { tasksDone.add(st.id); addTime(10); toast("Bonus science star for finishing the task! +10s", "Mission task done ✓", "🛠"); }
+        openCard(st, "site");
+      } });
+    sendState();
+  }
+  function stepTask(dt) { // the task uses the same controls as driving: steer moves the pointer, drive (or Enter, or Cross) grabs
+    const i = input(); taskPulse -= dt;
+    Tasks.step(dt, { x: i.s, hold: i.g > 0 || keys.enter || keys[" "] || (pad && pad.down.cross) || taskPulse > 0 });
+  }
+
   function setCtrl(name) { if (name !== ctrlNow) { ctrlNow = name; $("hudCtrl").textContent = "Driving with: " + name; } }
   function input() {
     const live = performance.now() - phone.t < 1200;
@@ -494,7 +522,7 @@ function startHost() {
   }
 
   // ---- game controller: buttons, menu focus, connect / disconnect messages ----
-  const overlayNow = () => bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : null;
+  const overlayNow = () => bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : mode === "task" ? $("task") : null;
   let padFocus = null;
   function moveFocus(dir) {
     const ov = overlayNow(); if (!ov) return;
@@ -526,6 +554,7 @@ function startHost() {
 
   function action(a) {
     if (a === "mute") { Sfx.setMuted(!Sfx.muted); store.set("mute", Sfx.muted ? "1" : ""); $("muteBtn").textContent = Sfx.muted ? "🔇" : "🔊"; return; }
+    if (mode === "task") { if (a === "next") taskPulse = .3; return; } // a quick tap (phone NEXT, Enter) counts as a short grab
     if (a === "book") { if (mode === "play" || bookOpen) toggleBook(); return; }
     if (bookOpen) { if (a === "next") toggleBook(); return; }
     if (a === "next") {
@@ -575,11 +604,11 @@ function startHost() {
   // time's up: a friendly report, never "game over". You can always carry on.
   function openReport() {
     mode = "report"; rover.v = 0;
-    $("repWorld").textContent = WD.label; $("repGhosts").textContent = sites.filter(s => found.has(s.id)).length + " / " + sites.length; $("repStars").textContent = stars.filter(s => starsGot.has(s.id)).length + " / " + stars.length;
+    $("repWorld").textContent = WD.label; $("repGhosts").textContent = sites.filter(s => found.has(s.id)).length + " / " + sites.length; $("repStars").textContent = stars.filter(s => starsGot.has(s.id)).length + " / " + stars.length; const bonus = sites.filter(s => tasksDone.has(s.id)).length; $("repBonus").textContent = bonus ? "+ " + bonus + " task bonus " + (bonus > 1 ? "stars" : "star") : "";
     $("report").classList.remove("hidden"); showClock(); sendState();
   }
   function keepExploring() { clock.free[worldKey] = true; $("report").classList.add("hidden"); mode = "play"; showClock(); sendState(); }
-  function tryAgain() { for (const s of sites) found.delete(s.id); for (const s of stars) starsGot.delete(s.id); resetClock(worldKey); $("report").classList.add("hidden"); setWorld(worldKey); beginCount(); }
+  function tryAgain() { for (const s of sites) { found.delete(s.id); tasksDone.delete(s.id); } for (const s of stars) starsGot.delete(s.id); resetClock(worldKey); $("report").classList.add("hidden"); setWorld(worldKey); beginCount(); }
   $("reportKeep").onclick = keepExploring; $("reportRetry").onclick = tryAgain;
   const tips = new Set(); let bumpT = 0;
   function tip(id, text) { if (tips.has(id)) return; tips.add(id); toast(text, "Mars tip", "💡"); }
@@ -639,7 +668,7 @@ function startHost() {
       if (sites.every(s => found.has(s.id))) {
         confetti(); Sfx.cheer(); vibe([80, 60, 80, 60, 200]);
         const scored = clock.on && !clock.free[worldKey]; // the time left is the score
-        openCard(Object.assign({}, WORLD_DONE[worldKey], scored ? { wow: "Mission complete with " + fmt(clock.left[worldKey]) + " to spare!" } : {}), "world"); showClock();
+        openCard(Object.assign({}, WORLD_DONE[worldKey], scored ? { wow: "Mission complete with " + fmt(clock.left[worldKey]) + " to spare! ⭐" } : {}), "world"); showClock();
       }
     } else if (k === "world") {
       const other = worldKey === "moon" ? "mars" : "moon";
@@ -648,7 +677,7 @@ function startHost() {
     } else if (k === "deep") {
       deepI++; openDeep();
     } else if (k === "end") {
-      found.clear(); starsGot.clear(); deepSeen.clear(); resetClock("moon"); resetClock("mars"); mode = "lobby"; Sfx.music(null);
+      found.clear(); starsGot.clear(); deepSeen.clear(); tasksDone.clear(); resetClock("moon"); resetClock("mars"); mode = "lobby"; Sfx.music(null);
       setWorld("moon"); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock();
     }
     sendState();
@@ -679,6 +708,7 @@ function startHost() {
       section("🌕 The Moon", WORLDS.moon.sites, s => found.has(s.id));
       section("🔴 Mars", WORLDS.mars.sites, s => found.has(s.id));
       section("✨ Deep space", DEEP, s => deepSeen.has(s.id));
+      section("🛠 Mission tasks", [].concat(WORLDS.moon.sites, WORLDS.mars.sites).filter(s => Tasks.has(s.id)).map(s => ({ id: s.id, name: Tasks.title(s.id), short: Tasks.title(s.id) })), s => tasksDone.has(s.id));
       const ul = $("bookFacts"); ul.innerHTML = "";
       for (const k in WORLDS) WORLDS[k].stars.forEach((s, i) => {
         const li = document.createElement("li"), ok = starsGot.has(k + i); li.className = ok ? "" : "no";
@@ -1052,7 +1082,7 @@ function startHost() {
     } else {
       const k = clamp((r.t - 1.5) / .7, 0, 1), el = 1 + Math.pow(2, -9 * k) * Math.sin((k * 8 - .75) * 2.1) * -1; // springy pop
       st.model.scale.setScalar(1.3 * (.35 + .65 * el)); st.model.rotation.y += dt * .6;
-      if (r.t > 3) { st.model.scale.setScalar(1.3); revive = null; openCard(st, "site"); }
+      if (r.t > 3) { st.model.scale.setScalar(1.3); revive = null; startTask(st); }
     }
   }
 
@@ -1062,7 +1092,7 @@ function startHost() {
   const camPos = new T.Vector3(), camLook = new T.Vector3(), want = new T.Vector3(), look = new T.Vector3(); let camInit = false;
   function updateCamera(dt) {
     const y0 = rover.alt; let kPos = 7, fov = 62;
-    const focus = revive ? revive.s : (mode === "card" && cardKind === "site" && card && card.g ? card : null);
+    const focus = revive ? revive.s : mode === "task" && taskSite ? taskSite : (mode === "card" && cardKind === "site" && card && card.g ? card : null);
     for (const st of sites) st.tag.visible = st.alive && st !== focus;
     if (focus) { // circle the ghost
       const a = (revive ? revive.a0 : 0) + time * .45, fx = focus.g.position.x;
@@ -1110,13 +1140,14 @@ function startHost() {
   setWorld("moon");
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
-    rover, found, starsGot, deepSeen, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
+    rover, found, starsGot, deepSeen, tasksDone, Tasks, setWorld, input, pad: () => pad, clock, reachable, solids: () => solids, sands: () => sands, world: () => worldKey, openReport, devils: () => devils, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer
   };
   let last = performance.now(), slow = 0, frames = 0;
   function frame(now) {
     const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
     pollPad();
+    if (Tasks.active()) stepTask(Math.min(.05, raw));
     update(dt);
     if (Math.abs(rover.x - tcx) > 120 || Math.abs(rover.y - tcz) > 120) updateTerrain(Math.round(rover.x / 120) * 120, Math.round(rover.y / 120) * 120);
     dust.update(dt); spark.update(dt);

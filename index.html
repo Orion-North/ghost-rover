@@ -68,23 +68,36 @@ b,h1,h2,h3{font-weight:700}
 
 /* title screen */
 #lobby{background:linear-gradient(180deg,rgba(10,12,34,.25),rgba(10,12,34,.6))}
-#lobby .lobbybox{display:block;max-width:1100px;padding:20px 28px}
-.ltop{display:grid;grid-template-columns:1fr 1.1fr;gap:26px;align-items:center}
-.ltop .logo{font-size:60px} .ltop .sub{margin:10px 0 0;font-size:17px}
-.ltop .lab{margin:4px 0 6px}
-.lrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
-.lrow .btn{font-size:17px;padding:10px 18px} #lobby .lrow .go{font-size:21px;padding:11px 24px}
-.waylab{text-align:center;margin:16px 0 8px}
-.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.way{background:rgba(0,0,0,.25);border:4px solid rgba(255,255,255,.18);border-radius:26px;padding:12px 14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;transition:border-color .2s,transform .2s,box-shadow .2s}
-.way.on{border-color:var(--gold);box-shadow:0 0 0 4px rgba(255,210,63,.25);transform:translateY(-3px)}
-.way h3{margin:0;font-size:22px}
-.wayart{height:150px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
-.wayart svg{height:118px}
-.way .cta{font-size:19px} .waynote{color:var(--dim);font-size:14px;line-height:1.3;min-height:2.6em}
-.keycaps{display:grid;grid-template-columns:repeat(3,44px);gap:6px} .keycaps.wide{grid-template-columns:150px}
-.keycaps i{font-style:normal;font-weight:700;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;background:#eef1fb;color:#141a3c;box-shadow:0 4px 0 #8f97c2}
-.keycaps i:empty{background:none;box-shadow:none}
+#lobby .lobbybox{display:block;max-width:1060px;padding:22px 30px 18px;position:relative;overflow:hidden}
+#lobby .lobbybox>*{position:relative;z-index:1}
+/* twinkling stars behind the title (slow, gentle) */
+#lobby .sky{position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(2px 2px at 8% 18%,#fff,transparent),radial-gradient(1.5px 1.5px at 22% 64%,#cfe8ff,transparent),radial-gradient(2px 2px at 41% 10%,#fff,transparent),
+  radial-gradient(1.5px 1.5px at 57% 36%,#fff6c8,transparent),radial-gradient(2px 2px at 73% 8%,#fff,transparent),radial-gradient(1.5px 1.5px at 91% 30%,#cfe8ff,transparent),
+  radial-gradient(1.5px 1.5px at 35% 88%,#fff,transparent),radial-gradient(2px 2px at 84% 72%,#fff,transparent);animation:twinkle 4s ease-in-out infinite alternate}
+#lobby .sky.b{animation-delay:-2s;transform:translate(13%,9%) scale(-1,1);opacity:.7}
+@keyframes twinkle{from{opacity:.25}to{opacity:1}}
+.ltop{display:grid;grid-template-columns:1fr 1.18fr;gap:26px;align-items:center}
+.brand{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px 14px}
+#lobby .logo{font-size:92px;line-height:.86;margin:0;text-shadow:0 8px 0 #141a3c,0 0 34px rgba(89,216,255,.45)}
+.brand .sub{grid-column:1/-1;margin:12px 0 0;font-size:17px}
+.minirover{width:118px;animation:bob 1.6s ease-in-out infinite;filter:drop-shadow(0 6px 0 rgba(0,0,0,.3))}
+.minirover .wh{transform-box:fill-box;transform-origin:center;animation:spin 1.2s linear infinite}
+@keyframes bob{50%{transform:translateY(-6px) rotate(-2deg)}} @keyframes spin{to{transform:rotate(360deg)}}
+.ltop .lab{margin:2px 0 6px}
+.lrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.lrow .btn{font-size:15px;padding:9px 13px}
+#lobby .lrow .go{font-size:28px;padding:14px 32px;border-radius:24px;animation:startglow 1.8s ease-in-out infinite}
+@keyframes startglow{0%,100%{transform:scale(1);box-shadow:0 6px 0 #1c9a45,0 0 16px rgba(61,220,111,.45)}50%{transform:scale(1.05);box-shadow:0 6px 0 #1c9a45,0 0 38px rgba(61,220,111,.9)}}
+#lobby .lrow .go:active{animation:none}
+/* the three small input tiles */
+.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px}
+.way{background:rgba(0,0,0,.28);border:3px solid rgba(255,255,255,.18);border-radius:20px;padding:8px 14px;min-height:104px;display:flex;align-items:center;gap:12px;transition:border-color .2s,box-shadow .2s}
+.way.on{border-color:var(--gold);box-shadow:0 0 0 3px rgba(255,210,63,.25)}
+.way .wico{font-size:34px;line-height:1}
+.way b{display:block;font-size:17px} .way .wline{display:block;color:var(--dim);font-size:16px;margin-top:2px}
+.way .mini{margin-left:auto;background:#4a59c9;border:0;border-radius:12px;padding:6px 9px;font-size:13px;font-weight:700;color:#fff;box-shadow:0 3px 0 #2c378c}
+@media (prefers-reduced-motion:reduce){#lobby .sky,.minirover,.minirover .wh,#lobby .lrow .go{animation:none}}
 .howtab{width:100%;border-collapse:separate;border-spacing:0 6px;font-size:16px}
 .howtab th{text-align:left;color:var(--gold);font-size:17px;padding:0 10px}
 .howtab td{background:rgba(0,0,0,.22);padding:7px 10px;line-height:1.5} .howtab td:first-child{font-weight:700;border-radius:12px 0 0 12px} .howtab td:last-child{border-radius:0 12px 12px 0}
@@ -120,9 +133,8 @@ b,h1,h2,h3{font-weight:700}
 .phone{background:rgba(0,0,0,.25);border-radius:26px;padding:18px;text-align:center}
 .phone h3{margin:0 0 4px;font-size:22px}
 .phone p{margin:0 0 12px;color:var(--dim);font-size:15px;line-height:1.3}
-#qr{background:#fff;border-radius:16px;padding:8px;display:flex;align-items:center;justify-content:center;width:150px;height:150px;color:#333;font-size:13px}
+#qr{background:#fff;border-radius:12px;padding:5px;display:flex;align-items:center;justify-content:center;width:90px;height:90px;flex:none;color:#333;font-size:11px;text-align:center}
 #qr svg{width:100%;height:100%;display:block}
-#joinUrl{font-size:10px;color:var(--dim);word-break:break-all;margin-top:0}
 .warn{background:#5a3a08;border:2px solid #ffb84a;color:#ffe2ae;border-radius:14px;padding:10px 12px;font-size:14px;margin-top:14px}
 
 /* story card */
@@ -206,7 +218,7 @@ b,h1,h2,h3{font-weight:700}
   .logo{font-size:52px}
 }
 @media (max-height:760px){
-  .logo{font-size:58px} #card h2{font-size:34px} #cardWow{font-size:23px} #card .story{font-size:18px} #card .fact{font-size:16px}
+  .logo{font-size:58px} #lobby .logo{font-size:76px} #card h2{font-size:34px} #cardWow{font-size:23px} #card .story{font-size:18px} #card .fact{font-size:16px}
   #cardArt{width:190px;height:190px} .box{padding:20px 26px}
 }
 @media (prefers-reduced-motion:reduce){ .ribbon,#wheel.near{animation:none} }
@@ -241,9 +253,19 @@ b,h1,h2,h3{font-weight:700}
 
   <div id="lobby" class="overlay">
     <div class="box lobbybox">
+      <div class="sky" aria-hidden="true"></div><div class="sky b" aria-hidden="true"></div>
       <div class="ltop">
-        <div>
+        <div class="brand">
           <h1 class="logo">Ghost<br><span>Rov</span><em>ers</em></h1>
+          <svg class="minirover" viewBox="0 0 120 100" aria-hidden="true">
+            <path d="M74 30v-12" stroke="#cbd3de" stroke-width="4"/><circle cx="74" cy="14" r="5" fill="#ffd23f" stroke="#141a3c" stroke-width="3"/>
+            <rect x="40" y="6" width="34" height="22" rx="7" fill="#f5f3ec" stroke="#141a3c" stroke-width="4"/><circle cx="52" cy="17" r="5" fill="#fff" stroke="#141a3c" stroke-width="2.5"/><circle cx="64" cy="17" r="5" fill="#fff" stroke="#141a3c" stroke-width="2.5"/><circle cx="53.5" cy="17" r="2.2" fill="#141a3c"/><circle cx="65.5" cy="17" r="2.2" fill="#141a3c"/>
+            <path d="M57 28v10" stroke="#cbd3de" stroke-width="5"/>
+            <rect x="14" y="36" width="92" height="34" rx="10" fill="#ff9a2e" stroke="#141a3c" stroke-width="4"/><rect x="22" y="42" width="44" height="10" rx="3" fill="#2f55b5" stroke="#141a3c" stroke-width="3"/>
+            <g class="wh"><circle cx="30" cy="78" r="13" fill="#30333d" stroke="#141a3c" stroke-width="4"/><circle cx="30" cy="78" r="5" fill="#ffd23f" stroke="#141a3c" stroke-width="2.5"/><path d="M30 69v4" stroke="#cbd3de" stroke-width="4" stroke-linecap="round"/></g>
+            <g class="wh"><circle cx="60" cy="78" r="13" fill="#30333d" stroke="#141a3c" stroke-width="4"/><circle cx="60" cy="78" r="5" fill="#ffd23f" stroke="#141a3c" stroke-width="2.5"/><path d="M60 69v4" stroke="#cbd3de" stroke-width="4" stroke-linecap="round"/></g>
+            <g class="wh"><circle cx="90" cy="78" r="13" fill="#30333d" stroke="#141a3c" stroke-width="4"/><circle cx="90" cy="78" r="5" fill="#ffd23f" stroke="#141a3c" stroke-width="2.5"/><path d="M90 69v4" stroke="#cbd3de" stroke-width="4" stroke-linecap="round"/></g>
+          </svg>
           <p class="sub">Abandoned but not forgotten. Race across the real Moon and Mars, follow the signals, and wake up the machines we left behind.</p>
         </div>
         <div>
@@ -257,28 +279,10 @@ b,h1,h2,h3{font-weight:700}
           <div class="lrow"><button class="btn go" id="kbStart">START ▶</button><button class="btn alt" id="timerBtn" title="Turn the mission timer on or off">⏱ Timer: On</button><button class="btn alt" id="howBtn">❓ How to play</button></div>
         </div>
       </div>
-      <div class="lab waylab">Drive with a controller or the keyboard, and switch any time. Try the phone controller preview too!</div>
       <div class="ways">
-        <div class="way" data-way="pad">
-          <h3>🎮 Controller</h3>
-          <div class="wayart"><svg viewBox="0 0 200 120" aria-hidden="true"><path d="M52 22h96c26 0 40 20 46 52 5 26-6 40-20 40-12 0-18-10-28-24H54c-10 14-16 24-28 24-14 0-25-14-20-40C12 42 26 22 52 22z" fill="#eef1fb" stroke="#141a3c" stroke-width="6" stroke-linejoin="round"/><circle cx="62" cy="58" r="16" fill="#3a4180"/><path d="M56 58h12M62 52v12" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="148" cy="42" r="8" fill="#4fe0b0" stroke="#141a3c" stroke-width="3"/><circle cx="148" cy="74" r="8" fill="#7db4ff" stroke="#141a3c" stroke-width="3"/><circle cx="132" cy="58" r="8" fill="#ff8fd8" stroke="#141a3c" stroke-width="3"/><circle cx="164" cy="58" r="8" fill="#ff6b7a" stroke="#141a3c" stroke-width="3"/><circle cx="82" cy="88" r="11" fill="#3a4180"/><circle cx="118" cy="88" r="11" fill="#3a4180"/></svg></div>
-          <b class="cta">Press <i class="ps x">✕</i> to start</b>
-          <div class="waynote" id="padStatus">Plug in by USB or pair by Bluetooth, then press any button.</div>
-          <button class="mini hidden" id="lightsBtn">💡 Match the lightbar (optional)</button>
-        </div>
-        <div class="way" data-way="kb">
-          <h3>⌨️ Keyboard</h3>
-          <div class="wayart"><div class="keycaps"><i></i><i>↑</i><i></i><i>←</i><i>↓</i><i>→</i></div><div class="keycaps wide"><i>Enter</i></div></div>
-          <b class="cta">Press <i class="ps">Enter</i> to start</b>
-          <div class="waynote">Arrows or WASD to drive.</div>
-        </div>
-        <div class="way" data-way="phone">
-          <h3>📱 Phone</h3>
-          <div class="wayart"><div id="qr">Getting a code…</div></div>
-          <b class="cta">Scan to try the phone controller</b>
-          <div class="waynote">A design preview. It doesn't drive the rover yet.</div>
-          <div id="joinUrl"></div>
-        </div>
+        <div class="way" data-way="pad"><span class="wico">🎮</span><span><b>Controller</b><span class="wline" id="padStatus">Press <i class="ps x">✕</i></span></span><button class="mini hidden" id="lightsBtn" title="Match the DualSense lightbar to the planet (optional)">💡</button></div>
+        <div class="way" data-way="kb"><span class="wico">⌨️</span><span><b>Keyboard</b><span class="wline">Press <i class="ps">Enter</i></span></span></div>
+        <div class="way" data-way="phone"><div id="qr">Getting a code…</div><span><b>📱 Phone</b><span class="wline">Scan to try</span></span><span id="joinUrl" class="hidden"></span></div>
       </div>
       <div id="fileWarn" class="warn hidden">This page is open as a file, so a phone can't open the preview. Put the folder online first (see the README). Controller and keyboard play work fine.</div>
     </div>

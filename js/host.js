@@ -570,10 +570,10 @@ function startHost() {
   }
   addEventListener("gamepadconnected", () => {
     toast("Controller connected!", "Ready to drive", "🎮"); setCtrl("pad"); setTimeout(() => Pad.rumble("hello"), 120);
-    $("padStatus").textContent = "🎮 Connected! Press ✕ to start."; if (Pad.lights.supported) $("lightsBtn").classList.remove("hidden");
+    $("padStatus").innerHTML = 'Connected! Press <i class="ps x">✕</i>'; if (Pad.lights.supported) $("lightsBtn").classList.remove("hidden");
   });
   addEventListener("gamepaddisconnected", () => {
-    $("padStatus").textContent = "Plug in by USB or pair by Bluetooth, then press any button.";
+    $("padStatus").innerHTML = 'Press <i class="ps x">✕</i>';
     if (ctrlNow === "pad") lostInput("🎮 The controller disconnected. Plug it back in, or keep going with the keyboard.");
     else toast("Controller disconnected", "", "🎮");
   });
@@ -965,7 +965,9 @@ function startHost() {
   // It doesn't connect to the game or send any input.
   // ------------------------------------------------------------------
   if (location.protocol === "file:") $("fileWarn").classList.remove("hidden");
-  const phoneUrl = new URL("phone.html", location.href).href;
+  // built from this page's own address, so on GitHub Pages it opens https://<you>.github.io/<repo>/phone.html
+  const path = location.pathname, folder = /\/[^/]*\.[^/]*$/.test(path) ? path.replace(/[^/]*$/, "") : path.replace(/\/?$/, "/"); // "/ghost-rover/index.html", "/ghost-rover/" and "/ghost-rover" all mean the folder "/ghost-rover/"
+  const phoneUrl = location.origin + folder + "phone.html";
   try { const q = qrcode(0, "M"); q.addData(phoneUrl); q.make(); $("qr").innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); }
   catch (e) { $("qr").textContent = "Couldn't make the code."; }
   $("joinUrl").textContent = phoneUrl;

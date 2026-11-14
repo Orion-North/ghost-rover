@@ -43,7 +43,15 @@ You can also just double-click `index.html` to play with the keyboard (no phone)
 - Follow the compass needle and the glowing beams. The beeps speed up as you get closer.
 - Drive up to a hologram to bring the machine back to life and open its story card.
 - Collect science stars for a fun fact and a speed boost.
-- Every machine you find becomes a sticker in the sticker book. Find them all on both worlds for the final signal.
+- Every machine you find becomes a sticker in the sticker book. Find them all on both worlds to unlock the Deep Space chapter.
+
+## What's in the game
+
+- **Moon (6):** Apollo 11 descent stage, Surveyor 3, Apollo 14 science station (ALSEP), Apollo 15, 16 and 17 Moon cars.
+- **Mars (8):** Viking 1, Viking 2, Sojourner, Opportunity, Spirit, Phoenix, InSight, Ingenuity.
+- **Deep space (5, story cards only):** Pioneer 10 & 11, NEAR Shoemaker, Dawn, Kepler, Voyager 1.
+
+The ALSEP in the game is the Apollo 14 one. The Apollo 12 ALSEP sits about 180 m from Surveyor 3, which is the same spot at this map's scale.
 
 ## What's real and what's cartoon
 

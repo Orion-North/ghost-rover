@@ -37,7 +37,7 @@ function startHost() {
   // ------------------------------------------------------------------
   let worldKey = "moon", WD = WORLDS.moon, W = { w: 1, h: 1 }, sites = [], stars = [], labels = [];
   const found = new Set(), starsGot = new Set();
-  let voyagerSeen = false;
+  const deepSeen = new Set(); let deepI = 0;
   const rover = { x: 0, y: 0, h: -Math.PI / 2, v: 0, alt: 0, vy: 0, air: false, pitch: 0, roll: 0, steer: 0, boost: 0, gPrev: 0, gVy: 0 };
   let mode = "lobby", bookOpen = false, card = null, cardKind = null, lastPing = -1, countT = 0, countN = -1;
   let revive = null, shake = 0, camH = rover.h, beepT = 0, sig = 0, sigDist = "", time = 0;
@@ -441,6 +441,7 @@ function startHost() {
     if (store.get("color", ROVER_COLORS[1][1]) === hex) mark();
   });
   document.querySelectorAll(".pick").forEach(b => b.onclick = () => { Sfx.init(); Sfx.click(); if (worldKey !== b.dataset.world) setWorld(b.dataset.world); });
+  document.querySelectorAll(".pick").forEach(b => b.querySelector("small").textContent = WORLDS[b.dataset.world].sites.length + " ghosts to find");
   $("kbStart").onclick = () => action("next");
   $("bookBtn").onclick = () => action("book");
   $("bookClose").onclick = () => action("book");
@@ -466,7 +467,7 @@ function startHost() {
   // story cards, sticker book, read aloud
   // ------------------------------------------------------------------
   const stickerImg = {};
-  [].concat(WORLDS.moon.sites, WORLDS.mars.sites, [EPILOGUE]).forEach(s => stickerImg[s.id] = Models.sticker(s.type, s));
+  [].concat(WORLDS.moon.sites, WORLDS.mars.sites, DEEP).forEach(s => stickerImg[s.id] = Models.sticker(s.type, s));
   $("cardArt").appendChild(Models.thumbSetup().renderer.domElement);
 
   function openCard(site, kind) {
@@ -482,7 +483,9 @@ function startHost() {
     $("cardTag").textContent = site.lat !== undefined ? `Real landing site: ${Math.abs(site.lat).toFixed(2)}°${site.lat >= 0 ? "N" : "S"}, ${Math.abs(site.lon).toFixed(2)}°${site.lon >= 0 ? "E" : "W"}` : "";
     $("cardRibbon").classList.toggle("hidden", kind === "world");
     const other = worldKey === "moon" ? "mars" : "moon", otherDone = WORLDS[other].sites.every(s => found.has(s.id));
-    $("cardNext").textContent = kind === "world" ? (otherDone ? "One last signal… ▶" : other === "mars" ? "Launch to Mars 🚀" : "Fly to the Moon 🚀") : kind === "end" ? "Play again ↺" : "Keep exploring ▶";
+    $("cardNext").textContent = kind === "world" ? (otherDone ? "Deep space signals… 📡" : other === "mars" ? "Launch to Mars 🚀" : "Fly to the Moon 🚀") : kind === "end" ? "Play again ↺" : kind === "deep" ? "Next signal 📡" : "Keep exploring ▶";
+    $("card").classList.toggle("deep", kind === "deep" || kind === "end");
+    $("cardTag").classList.toggle("hidden", !$("cardTag").textContent);
     Models.thumbShow(site.type, site);
     $("card").classList.remove("hidden"); $("card").querySelector(".box").scrollTop = 0; sendState();
   }
@@ -496,13 +499,16 @@ function startHost() {
     } else if (k === "world") {
       const other = worldKey === "moon" ? "mars" : "moon";
       if (!WORLDS[other].sites.every(s => found.has(s.id))) { setWorld(other); beginCount(); }
-      else { voyagerSeen = true; confetti(); openCard(EPILOGUE, "end"); }
+      else { deepI = 0; confetti(); openDeep(); }
+    } else if (k === "deep") {
+      deepI++; openDeep();
     } else if (k === "end") {
-      found.clear(); starsGot.clear(); voyagerSeen = false; mode = "lobby"; Sfx.music(null);
+      found.clear(); starsGot.clear(); deepSeen.clear(); mode = "lobby"; Sfx.music(null);
       setWorld("moon"); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden"));
     }
     sendState();
   }
+  function openDeep() { const d = DEEP[deepI]; deepSeen.add(d.id); Sfx.found(); vibe([60, 40, 120]); openCard(d, deepI === DEEP.length - 1 ? "end" : "deep"); }
   function readAloud() {
     if (!card || !window.speechSynthesis) return;
     if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
@@ -522,12 +528,12 @@ function startHost() {
         list.forEach((s, i) => {
           const ok = have(s), d = document.createElement("div"); d.className = "stk" + (ok ? "" : " no"); d.style.setProperty("--r", ok ? ((i % 3) - 1) * 2.5 + "deg" : "0deg");
           const im = document.createElement("img"); im.src = stickerImg[s.id]; im.alt = ok ? s.name : "Not found yet"; d.appendChild(im);
-          d.appendChild(document.createTextNode(ok ? (s.id === "voy" ? "Voyager 1" : s.name) : "???")); grid.appendChild(d);
+          d.appendChild(document.createTextNode(ok ? (s.short || s.name) : "???")); grid.appendChild(d);
         });
       };
       section("🌕 The Moon", WORLDS.moon.sites, s => found.has(s.id));
       section("🔴 Mars", WORLDS.mars.sites, s => found.has(s.id));
-      section("✨ Deep space", [EPILOGUE], () => voyagerSeen);
+      section("✨ Deep space", DEEP, s => deepSeen.has(s.id));
       const ul = $("bookFacts"); ul.innerHTML = "";
       for (const k in WORLDS) WORLDS[k].stars.forEach((s, i) => {
         const li = document.createElement("li"), ok = starsGot.has(k + i); li.className = ok ? "" : "no";
@@ -829,7 +835,7 @@ function startHost() {
   setWorld("moon");
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
-    rover, found, starsGot, setWorld, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
+    rover, found, starsGot, deepSeen, setWorld, toXY: (a, b) => toXY(a, b), mode: () => mode, sites: () => sites, stars: () => stars,
     warp(lat, lon) { [rover.x, rover.y] = toXY(lat, lon); rover.alt = rover.gPrev = H(rover.x, rover.y); rover.air = false; camInit = false; }, renderer
   };
   let last = performance.now(), slow = 0, frames = 0;

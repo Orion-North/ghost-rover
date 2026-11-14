@@ -149,6 +149,53 @@ const Models = (() => {
       strut(s, [-4, 0, 0], [-12, -3, -3], .5, C.silver); [-14, -18, -22].forEach(x => { const c = cyl(s, 1.6, 1.6, 3.4, 8, C.dark, x, -3.6 - (x + 14) * -.25, -3.5 - (x + 14) * -.3); c.rotation.z = Math.PI / 2; });
       strut(s, [-3, -1, 3], [-22, -6, 32], .3, C.silver);
     },
+    // ALSEP: a central station wired to a nuclear battery, a seismometer and a laser mirror
+    alsep(g) {
+      box(g, 9, 7, 9, C.gold, 0, 5.5, 0); box(g, 10.5, .7, 10.5, C.white, 0, 9.4, 0);
+      strut(g, [0, 9.5, 0], [0, 19, 0], .5, C.silver); cyl(g, 1.3, 1.3, 6, 8, C.silver, 0, 21, 0).rotation.z = .3;
+      cyl(g, 4, 4, 1, 10, C.silver, -19, .6, 7); cyl(g, 2.6, 2.6, 8, 8, C.dark, -19, 5, 7);                 // nuclear battery with cooling fins
+      for (let i = 0; i < 4; i++) box(g, 9, 6.5, .5, C.mid, -19, 5.2, 7).rotation.y = i * Math.PI / 4;
+      cyl(g, 8, 8, .4, 16, C.silver, 17, .4, 11); cyl(g, 2.4, 2.4, 4.5, 10, C.silver, 17, 2.6, 11);           // seismometer on its silver blanket
+      box(g, 7, .8, 7, C.white, 15, 3.4, -15).rotation.z = .5; strut(g, [15, 0, -15], [15, 3, -15], .5, C.silver); // laser mirror
+      strut(g, [-10, 0, -15], [-10, 6, -15], .4, C.silver); [0, 2.1, 4.2].forEach(a => strut(g, [-10, 6, -15], [-10 + Math.cos(a) * 6, 9, -15 + Math.sin(a) * 6], .3, C.silver));
+      [[-19, 7], [17, 11], [15, -15], [-10, -15]].forEach(([x, z]) => strut(g, [0, .3, 0], [x, .3, z], .25, C.tan)); // cables
+    },
+    // Pioneer: dish, six-sided body, two power booms and a long sensor boom
+    pioneer(g) {
+      const s = new T.Group(); s.position.y = 18; s.rotation.z = -.3; s.rotation.x = .25; g.add(s);
+      const d = cyl(s, 13, 2, 5, 18, C.white, 0, 5, 0, true); d.material = mat(C.white, { side: T.DoubleSide });
+      [0, 2.1, 4.2].forEach(a => strut(s, [Math.cos(a) * 9, 5, Math.sin(a) * 9], [0, 12, 0], .3, C.silver)); sph(s, 1.2, C.silver, 0, 12, 0);
+      cyl(s, 6, 6, 4, 6, C.gold, 0, .5, 0);
+      [1, -1].forEach(k => { strut(s, [k * 4, 0, 3], [k * 20, -1, 12], .4, C.silver); const c = cyl(s, 1.7, 1.7, 5, 8, C.dark, k * 21, -1, 12.5); c.rotation.z = Math.PI / 2; c.rotation.y = -k * .5; });
+      strut(s, [0, 0, -5], [0, -3, -34], .3, C.silver); box(s, 2.5, 2.5, 2.5, C.mid, 0, -3, -35);
+      box(s, .3, 2.2, 3.6, 0xffd23f, 6.2, .5, 0); // the golden plaque
+    },
+    // NEAR Shoemaker: eight-sided body with a dish and four solar panels like a windmill
+    near(g) {
+      const s = new T.Group(); s.position.y = 17; s.rotation.z = .3; g.add(s);
+      cyl(s, 7, 7, 10, 8, C.gold, 0, 0, 0);
+      const d = cyl(s, 6.5, 1.5, 3, 14, C.white, 0, 6.6, 0, true); d.material = mat(C.white, { side: T.DoubleSide });
+      [0, 1, 2, 3].forEach(i => { const a = i * Math.PI / 2, p = box(s, 15, .5, 7, C.navy, Math.cos(a) * 14.5, 5, Math.sin(a) * 14.5); p.rotation.y = -a; });
+      box(s, 4, 4, 4, C.mid, 5, -6.5, 0); cyl(s, 1.5, 2.6, 2.5, 8, C.dark, -3, -6.2, 2);
+    },
+    // Dawn: a box with two huge solar wings, a dish, and ion engines underneath
+    dawn(g) {
+      const s = new T.Group(); s.position.y = 18; s.rotation.z = .2; s.rotation.y = .5; g.add(s);
+      box(s, 8, 10, 8, C.gold, 0, 0, 0);
+      [1, -1].forEach(k => { box(s, 20, .5, 9, C.navy, k * 15, 0, 0); box(s, 20.4, .3, .5, C.silver, k * 15, .3, 0); strut(s, [k * 4, 0, 0], [k * 6, 0, 0], .5, C.silver); });
+      const d = cyl(s, 5.5, 1.2, 2.4, 14, C.white, 0, 0, 5.4, true); d.material = mat(C.white, { side: T.DoubleSide }); d.rotation.x = Math.PI / 2;
+      [[-2.2, 0], [2.2, 0], [0, 2.2]].forEach(([x, z]) => cyl(s, 1.1, 1.7, 2, 8, C.dark, x, -6, z));
+      const glow = sph(s, 1, mat(0x7fe3ff, { emissive: 0x3fb6ff }), 0, -7.4, 2.2); glow.castShadow = false;
+    },
+    // Kepler: a telescope tube with a sunshade and solar panels on one side
+    kepler(g) {
+      const s = new T.Group(); s.position.y = 19; s.rotation.z = -.35; g.add(s);
+      cyl(s, 6, 6, 16, 12, C.silver, 0, 0, 0); cyl(s, 6.8, 7.6, 7, 12, C.gold, 0, -7, 0);
+      const sh = cyl(s, 7, 6.2, 6, 12, C.white, 0, 10.5, 0, true); sh.material = mat(C.white, { side: T.DoubleSide });
+      cyl(s, 5.2, 5.2, .5, 12, C.dark, 0, 7.6, 0);
+      [-1, 0, 1].forEach(k => { const a = k * .62, p = box(s, .5, 15, 5.4, C.navy, Math.cos(a) * 7.4, .5, Math.sin(a) * 7.4); p.rotation.y = -a; });
+      const d = cyl(s, 3, .8, 1.5, 12, C.white, -3, -11.6, 0, true); d.material = mat(C.white, { side: T.DoubleSide }); d.rotation.z = Math.PI;
+    },
     trophy(g) {
       cyl(g, 9, 11, 4, 12, C.navy, 0, 2, 0); cyl(g, 2, 3, 12, 8, C.gold, 0, 10, 0);
       const st = add(g, starGeo(12, 5.5, 4), mat(0xffd23f, { emissive: 0x7a5200 }), 0, 27, 0); st.userData.spin = true;

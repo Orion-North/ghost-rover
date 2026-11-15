@@ -2,6 +2,8 @@
 // Ingenuity: the first powered, controlled flight on another planet, in air about 1% as thick as Earth's.
 Tasks.add("ing", {
   title: "First flight!", hint: "Hold to lift off in the thin air. Fly through the glowing rings.", world: "mars",
+  action: s => "Fly through ring " + Math.min(s.k + 1, 3) + " of 3",
+  status: (s, inp) => inp.hold ? "Lifting — steer toward the ring" : "Coasting — hold to lift",
   start(s) { Object.assign(s, { x: 150, y: 370, vy: 0, gy: 370, rings: [[300, 240], [480, 140], [650, 250]], k: 0, py: 440, tilt: 0, spin: 0 }); },
   step(s, dt, inp, T) {
     const drift = Math.sin(T.time * 1.3) * 30 * (1 - T.assist), vx = T.clamp(inp.px - s.x, -150, 150);

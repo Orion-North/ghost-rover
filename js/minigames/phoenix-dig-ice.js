@@ -2,6 +2,7 @@
 // Phoenix: it scraped a trench and found bright white chunks that vanished a few days later: water ice.
 Tasks.add("phx", {
   title: "Dig for ice!", hint: "Hold over the trench to scrape. Then grab the ice before it fades!", world: "mars",
+  action: s => s.stage ? "Grab the ice before it fades" : "Scrape the trench · " + Math.min(s.layer + 1, 3) + " of 3",
   start(s) { Object.assign(s, { layer: 0, stage: 0, ice: 0, iceX: 400, py: 250 }); },
   step(s, dt, inp, T) {
     if (s.stage === 0) {

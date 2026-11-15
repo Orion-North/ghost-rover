@@ -15,8 +15,12 @@ function startHost() {
   // ------------------------------------------------------------------
   // renderer, scene, camera
   // ------------------------------------------------------------------
-  const renderer = new T.WebGLRenderer({ canvas: $("game"), antialias: true, powerPreference: "high-performance" });
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFShadowMap;
+  let renderer;
+  try { renderer = new T.WebGLRenderer({ canvas: $("game"), antialias: true, powerPreference: "high-performance" }); }
+  catch (_) { throw new Error("The game couldn't start its 3D graphics. Try enabling hardware acceleration or opening it in another browser."); }
+  let graphicsBlocked = false;
+  const lostContexts = new Set();
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
   const scene = new T.Scene(), camera = new T.PerspectiveCamera(62, 1, 2, 30000);
   let vw = 1, vh = 1, quality = Math.min(1.5, window.devicePixelRatio || 1);
   function resize() {
@@ -29,6 +33,7 @@ function startHost() {
 
   const hemi = new T.HemisphereLight(0xffffff, 0x333333, .5); scene.add(hemi);
   const sun = new T.DirectionalLight(0xffffff, 1); scene.add(sun, sun.target);
+  const fill = new T.DirectionalLight(0xb9d4ff, .16); scene.add(fill, fill.target);
   sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -.0015; sun.shadow.normalBias = 1.5;
   Object.assign(sun.shadow.camera, { left: -170, right: 170, top: 170, bottom: -170, near: 10, far: 1200 }); sun.shadow.camera.updateProjectionMatrix();
   const sunDir = new T.Vector3();
@@ -43,6 +48,28 @@ function startHost() {
   let mode = "lobby", bookOpen = false, card = null, cardKind = null, lastPing = -1, countT = 0, countN = -1;
   let revive = null, shake = 0, camH = rover.h, beepT = 0, sig = 0, sigDist = "", time = 0;
   const keys = {};
+  let progressStorage = null;
+  try { progressStorage = window.localStorage; } catch (_) { }
+  const progress = Progress.create(progressStorage, WORLDS, DEEP);
+  let savedProgress = progress.load(), progressStarted = false, pendingSite = null, pendingPhase = null, pendingDeep = null, bookReturn = null, saveFailed = !progressStorage;
+  function paintProgress() {
+    const has = !!savedProgress;
+    $("continueBtn").textContent = has ? "Continue " + WORLDS[savedProgress.world].short + " ▶" : "Continue ▶";
+    $("continueBtn").classList.toggle("hidden", !has);
+    $("newGameBtn").classList.toggle("hidden", !has);
+    $("kbStart").classList.toggle("hidden", has);
+    const message = saveFailed ? "Progress could not be saved. You can still play this session." : has ? "Your discoveries are saved on this browser." : "Discoveries save automatically on this browser.";
+    if ($("saveStatus").textContent !== message) $("saveStatus").textContent = message;
+  }
+  function saveProgress() {
+    // Title-world selection is only a preview; blur/pagehide must preserve the
+    // last actual exploration checkpoint rather than save its preview position.
+    if (!progressStarted || mode === "lobby") return;
+    const data = { version: Progress.VERSION, world: worldKey, rover: { x: rover.x, y: rover.y, h: rover.h }, found: [...found], stars: [...starsGot], tasks: [...tasksDone], deep: [...deepSeen], seen: [...cardSeen], pendingSite, pendingPhase, pendingDeep,
+      clocks: Object.fromEntries(Object.keys(WORLDS).map(k => [k, { left: clock.left[k], free: clock.free[k] }])) };
+    savedProgress = progress.normalize(data);
+    saveFailed = !progress.save(data); paintProgress();
+  }
 
   const toXY = (lat, lon) => [(lon - WD.lonMin) * WD.ppd, (WD.latMax - lat) * WD.ppd];
   const wdx = dx => WD.wrap ? dx - Math.round(dx / W.w) * W.w : dx;   // shortest east-west distance on a wrapped planet
@@ -116,7 +143,8 @@ function startHost() {
     tGeo.setIndex(idx); tGeo.setAttribute("position", new T.BufferAttribute(tPos, 3)); tGeo.setAttribute("color", new T.BufferAttribute(tCol, 3)); }
   const terrain = new T.Mesh(tGeo, new T.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
   terrain.frustumCulled = false; terrain.receiveShadow = true; scene.add(terrain);
-  let tcx = 1e9, tcz = 1e9;
+  let tcx = 1e9, tcz = 1e9, terrainJob = null;
+  terrain.visible = false;
 
   // optional real maps: moon.jpg / mars.jpg (full-globe, equirectangular) next to index.html
   const maps = {};
@@ -125,7 +153,7 @@ function startHost() {
     img.onload = () => {
       maps[k] = { img };
       try { const c = document.createElement("canvas"); c.width = 1024; c.height = 512; const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(img, 0, 0, 1024, 512); maps[k].px = g.getImageData(0, 0, 1024, 512).data; } catch (e) { }
-      if (k === worldKey) tcx = 1e9;
+      if (k === worldKey) { terrainJob = null; tcx = 1e9; }
     };
     img.src = k + ".jpg";
   }
@@ -136,34 +164,111 @@ function startHost() {
     return (m.px[i] + m.px[i + 1] + m.px[i + 2]) / 765;
   }
 
+  // Build into staging arrays over several frames. The visible mesh, props and
+  // collision lists are committed together, so a half-built landscape never shows.
   function updateTerrain(cx, cz) {
-    tcx = cx; tcz = cz; const moon = worldKey === "moon"; let p = 0;
-    listObstacles(cx, cz);
-    for (let j = 0; j < TV; j++) for (let i = 0; i < TV; i++) {
-      const x = cx + (i - TN / 2) * TC, z = cz + (j - TN / 2) * TC, h = H(x, z);
-      tPos[p] = x; tPos[p + 1] = h; tPos[p + 2] = z;
-      const lum = mapLum(x, z); let r, g, b;
-      if (moon) {
-        let v = .58 + ti.shade - Math.max(0, .5 - ti.tint) * .45; if (lum >= 0) v = v * .45 + lum * .75;
-        r = v * .97; g = v * .98; b = v * 1.05;
-      } else {
-        const k = ti.tint, s = ti.shade, m = lum >= 0 ? .55 + lum * .9 : 1;
-        r = (lerp(.66, .86, k) + s) * m; g = (lerp(.29, .43, k) + s * .75) * m; b = (lerp(.17, .24, k) + s * .5) * m;
+    if (terrainJob && terrainJob.world === worldKey) return;
+    const obstacles = collectObstacles(cx, cz);
+    terrainJob = { cx, cz, world: worldKey, row: 0, obstacles,
+      pos: new Float32Array(tPos.length), col: new Float32Array(tCol.length) };
+  }
+  function stepTerrain() {
+    const job = terrainJob; if (!job) return;
+    if (job.world !== worldKey) { terrainJob = null; return; }
+    const { cx, cz } = job, moon = worldKey === "moon", start = performance.now();
+    let rows = 0;
+    while (job.row < TV && rows < 16 && (rows === 0 || performance.now() - start < 3)) {
+      const j = job.row++; rows++;
+      for (let i = 0; i < TV; i++) {
+        const p = (j * TV + i) * 3, x = cx + (i - TN / 2) * TC, z = cz + (j - TN / 2) * TC, h = H(x, z);
+        job.pos[p] = x; job.pos[p + 1] = h; job.pos[p + 2] = z;
+        const lum = mapLum(x, z); let r, g, b;
+        if (moon) {
+          let v = .58 + ti.shade - Math.max(0, .5 - ti.tint) * .45; if (lum >= 0) v = v * .45 + lum * .75;
+          r = v * .97; g = v * .98; b = v * 1.05;
+        } else {
+          const k = ti.tint, s = ti.shade, m = lum >= 0 ? .55 + lum * .9 : 1;
+          r = (lerp(.66, .86, k) + s) * m; g = (lerp(.29, .43, k) + s * .75) * m; b = (lerp(.17, .24, k) + s * .5) * m;
+        }
+        for (const sd of job.obstacles.sands) { const d = Math.hypot(x - sd.x, z - sd.z) / sd.r; if (d < 1.15) { const k = 1 - smooth((d - .8) / .35); r *= 1 - .2 * k; g *= 1 - .26 * k; b *= 1 - .3 * k; } }
+        job.col[p] = r; job.col[p + 1] = g; job.col[p + 2] = b;
       }
-      for (const sd of sands) { const d = Math.hypot(x - sd.x, z - sd.z) / sd.r; if (d < 1.15) { const k = 1 - smooth((d - .8) / .35); r *= 1 - .2 * k; g *= 1 - .26 * k; b *= 1 - .3 * k; } } // soft sand is a little darker
-      tCol[p] = r; tCol[p + 1] = g; tCol[p + 2] = b; p += 3;
     }
+    if (job.row < TV) return;
+    tPos.set(job.pos); tCol.set(job.col);
+    solids = job.obstacles.solids; sands = job.obstacles.sands;
     tGeo.attributes.position.needsUpdate = true; tGeo.attributes.color.needsUpdate = true;
+    tcx = cx; tcz = cz; terrainJob = null; terrain.visible = true;
     updateProps(cx, cz);
+  }
+
+  // r149 chooses USE_INSTANCING_COLOR when a material is first compiled.
+  // Allocate the attribute before any scene render, including empty batches.
+  function prepareInstanceColors(mesh, T) {
+    mesh.setColorAt(0, new T.Color(0xffffff));
+    mesh.instanceColor.array.fill(1); mesh.instanceColor.setUsage(T.DynamicDrawUsage);
+    mesh.material.needsUpdate = true; mesh.count = 0;
+    return mesh;
   }
 
   // rocks and (on Mars) flat-topped mesas, scattered the same way every time
   const dummy = new T.Object3D(), tmpC = new T.Color();
   const rocks = new T.InstancedMesh(new T.DodecahedronGeometry(1, 0), new T.MeshLambertMaterial({ flatShading: true }), 520);
+  prepareInstanceColors(rocks, T);
   rocks.castShadow = true; rocks.receiveShadow = true; rocks.frustumCulled = false; scene.add(rocks);
   const mesaGeo = new T.CylinderGeometry(.7, 1, 1, 7); mesaGeo.translate(0, .5, 0);
   const mesas = new T.InstancedMesh(mesaGeo, new T.MeshLambertMaterial({ flatShading: true }), 60);
+  prepareInstanceColors(mesas, T);
   mesas.frustumCulled = false; scene.add(mesas);
+  // Cartoon geology decorates existing solid mesas; every arch stays high on
+  // an unreachable top. These batches never add obstacles or change a route.
+  function mesaArchGeometry(T) {
+    // A deep, broad opening reads as an arch even at an oblique driving angle.
+    const shape = new T.Shape();
+    shape.moveTo(-1.18, 0); shape.lineTo(-1.18, .28);
+    shape.quadraticCurveTo(-.96, 1.2, 0, 1.24);
+    shape.quadraticCurveTo(.96, 1.2, 1.18, .28);
+    shape.lineTo(1.18, 0); shape.lineTo(.69, 0); shape.lineTo(.69, .25);
+    shape.quadraticCurveTo(.55, .76, 0, .8);
+    shape.quadraticCurveTo(-.55, .76, -.69, .25);
+    shape.lineTo(-.69, 0); shape.closePath();
+    const geometry = new T.ExtrudeGeometry(shape, { depth: .85, steps: 1, bevelEnabled: true, bevelThickness: .06, bevelSize: .06, bevelSegments: 1, curveSegments: 3 });
+    geometry.translate(0, 0, -.425); return geometry;
+  }
+  function createMesaLandmarks(T) {
+    const group = new T.Group(); group.name = "Layered mesa landmarks";
+    const make = (geometry, capacity, color) => {
+      const mesh = new T.InstancedMesh(geometry, new T.MeshLambertMaterial({ color, flatShading: true }), capacity);
+      mesh.count = 0; mesh.frustumCulled = false; mesh.receiveShadow = true; group.add(mesh); return mesh;
+    };
+    const bands = make(new T.CylinderGeometry(.98, 1, 1, 7), 180, 0xffffff);
+    prepareInstanceColors(bands, T);
+    const caps = make(new T.CylinderGeometry(.67, .72, 1, 7), 60, 0xdba071);
+    const arches = make(mesaArchGeometry(T), 60, 0xe8b782);
+    arches.castShadow = true;
+    return { group, bands, caps, arches, dummy: new T.Object3D(), color: new T.Color() };
+  }
+  function positionMesaLandmark(set, o, index, base, yaw, stretch, shade) {
+    const d = set.dummy, height = o.hgt + 20;
+    [.22, .47, .73].forEach((fraction, layer) => {
+      const radius = o.R * (1 - .3 * (fraction - .025)) * 1.008;
+      d.position.set(o.x, base - 20 + height * fraction, o.z); d.rotation.set(0, yaw, 0);
+      d.scale.set(radius, height * .05, radius * stretch); d.updateMatrix();
+      set.bands.setMatrixAt(index * 3 + layer, d.matrix);
+      const col = layer === 1 ? [.89, .54, .34] : [.52, .25, .19];
+      set.bands.setColorAt(index * 3 + layer, set.color.setRGB(col[0] * shade, col[1] * shade, col[2] * shade));
+    });
+    d.position.set(o.x, base + o.hgt, o.z); d.rotation.set(0, yaw, 0); d.scale.set(o.R, 5, o.R * stretch); d.updateMatrix();
+    set.caps.setMatrixAt(index, d.matrix);
+    // Stable cell hashes make a recognisable arch stay with its own mesa.
+    if (hash(o.m, o.iz, 143) < .45) {
+      const scale = o.R * (.3 + hash(o.m, o.iz, 144) * .06);
+      d.position.set(o.x, base + o.hgt + 2.5, o.z); d.rotation.set(0, yaw + .35, hash(o.m, o.iz, 145) * .12 - .06);
+      d.scale.set(scale, scale * .8, scale); d.updateMatrix();
+      set.arches.setMatrixAt(set.arches.count++, d.matrix);
+    }
+  }
+  const mesaLandmarks = createMesaLandmarks(T); scene.add(mesaLandmarks.group);
   // ---- Mars obstacles (Level 2). Each kind lives on its own grid of squares, so they are the same every game. ----
   // All of them keep clear of ghosts, stars and the start, so every ghost can always be reached.
   function mesaAt(ix, iz) {
@@ -184,12 +289,14 @@ function startHost() {
   function craterAt(ix, iz) { const c = craterCell(ix, iz, 900, .25, 40, 110); return c ? { x: (ix + c.fx) * 900, z: (iz + c.fz) * 900, r: c.r, kind: "crater" } : null; }
   function gather(fn, cell, cx, cz, reach, out) { const a = Math.round(cx / cell), b = Math.round(cz / cell), n = Math.ceil(reach / cell); for (let ix = a - n; ix <= a + n; ix++) for (let iz = b - n; iz <= b + n; iz++) { const o = fn(ix, iz); if (o) out.push(o); } return out; }
   let solids = [], sands = [];
-  function listObstacles(cx, cz) {
-    solids = []; sands = []; if (worldKey === "moon") return; // the Moon is the easy level: nothing blocks the rover there
+  function collectObstacles(cx, cz) {
+    const solids = [], sands = []; if (worldKey === "moon") return { solids, sands }; // the Moon is the easy level: nothing blocks the rover there
     gather(mesaAt, 900, cx, cz, 2700, solids); gather(boulderAt, 300, cx, cz, 1500, solids); gather(craterAt, 900, cx, cz, 1800, solids);
     gather(sandAt, 600, cx, cz, 1800, sands);
+    return { solids, sands };
   }
   const boulders = new T.InstancedMesh(new T.IcosahedronGeometry(1, 0), new T.MeshLambertMaterial({ flatShading: true }), 160);
+  prepareInstanceColors(boulders, T);
   boulders.castShadow = true; boulders.frustumCulled = false; scene.add(boulders);
   const rimGeo = new T.TorusGeometry(1, .16, 5, 28); rimGeo.rotateX(Math.PI / 2);
   const rims = new T.InstancedMesh(rimGeo, new T.MeshLambertMaterial({ color: 0x9c4426, flatShading: true }), 40); // raised crater rims you can see coming
@@ -210,11 +317,12 @@ function startHost() {
     }
     rocks.count = n; rocks.instanceMatrix.needsUpdate = true; if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
 
-    let nm = 0, nb = 0, nr = 0, nc = 0;
+    let nm = 0, nb = 0, nr = 0, nc = 0; mesaLandmarks.arches.count = 0;
     for (const o of solids) {
       if (o.kind === "mesa" && nm < 60) {
         dummy.position.set(o.x, H(o.x, o.z) - 20, o.z); dummy.rotation.set(0, hash(o.m, o.iz, 46) * 6, 0); dummy.scale.set(o.R, o.hgt + 20, o.R * (.7 + hash(o.m, o.iz, 47) * .5)); dummy.updateMatrix();
-        mesas.setMatrixAt(nm, dummy.matrix); const v = .85 + hash(o.m, o.iz, 48) * .3; mesas.setColorAt(nm++, tmpC.setRGB(.7 * v, .33 * v, .2 * v));
+        mesas.setMatrixAt(nm, dummy.matrix); const v = .85 + hash(o.m, o.iz, 48) * .3; mesas.setColorAt(nm, tmpC.setRGB(.7 * v, .33 * v, .2 * v));
+        positionMesaLandmark(mesaLandmarks, o, nm, H(o.x, o.z), hash(o.m, o.iz, 46) * 6, .7 + hash(o.m, o.iz, 47) * .5, v); nm++;
       } else if (o.kind === "crater" && nc < 40) {
         let lo = 1e9; for (let a = 0; a < 6.3; a += .8) lo = Math.min(lo, H(o.x + Math.cos(a) * o.r, o.z + Math.sin(a) * o.r));
         dummy.position.set(o.x, lo + o.r * .04, o.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(o.r * 1.02, o.r * .9, o.r * 1.02); dummy.updateMatrix(); rims.setMatrixAt(nc++, dummy.matrix);
@@ -229,6 +337,10 @@ function startHost() {
         const lx = seg * half * .66, x = sd.x + lx, z = sd.z + off + Math.sin(lx * .05 + k) * 5;
         dummy.position.set(x, H(x, z) + .5, z); dummy.rotation.set(0, Math.cos(lx * .05 + k) * .2, 0); dummy.scale.set(half * .68, 1, 3.2); dummy.updateMatrix(); ripples.setMatrixAt(nr++, dummy.matrix);
       }
+    }
+    mesaLandmarks.bands.count = nm * 3; mesaLandmarks.caps.count = nm;
+    for (const mesh of [mesaLandmarks.bands, mesaLandmarks.caps, mesaLandmarks.arches]) {
+      mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
     mesas.count = nm; mesas.instanceMatrix.needsUpdate = true; if (mesas.instanceColor) mesas.instanceColor.needsUpdate = true;
     rims.count = nc; rims.instanceMatrix.needsUpdate = true;
@@ -296,6 +408,21 @@ function startHost() {
     const g = new T.BufferGeometry(); g.setIndex(idx); g.setAttribute("position", new T.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new T.Float32BufferAttribute(col, 3));
     const m = new T.Mesh(g, new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide, fog: false })); m.frustumCulled = false; m.renderOrder = -5; return m;
   }
+  function createHorizonLandmarks(T, moon) {
+    const group = new T.Group(); group.name = moon ? "Distant crater silhouettes" : "Distant stone arch silhouettes";
+    const material = new T.MeshBasicMaterial({ color: moon ? 0x8e99b3 : 0xc68e71, fog: false, side: T.DoubleSide });
+    for (let i = 0; i < 3; i++) {
+      const a = [-2.25, -.42, 1.48][i], radius = 1760;
+      const geometry = moon ? new T.TorusGeometry(1, .14, 4, 20) : mesaArchGeometry(T);
+      if (moon) geometry.rotateX(Math.PI / 2);
+      const mesh = new T.Mesh(geometry, material);
+      mesh.position.set(Math.cos(a) * radius, moon ? 8 + i * 3 : 30 + i * 12, Math.sin(a) * radius);
+      mesh.rotation.set(0, Math.PI / 2 - a, moon ? .025 * (i - 1) : 0);
+      mesh.scale.set(moon ? 180 + i * 20 : 115 + i * 14, moon ? 110 : 100 + i * 10, moon ? 70 : 85);
+      mesh.renderOrder = -4; mesh.frustumCulled = false; group.add(mesh);
+    }
+    return group;
+  }
   const loopNoise = (i, n, cell, seed) => { const f = i / cell, a = Math.floor(f), k = smooth(f - a), p = Math.round(n / cell); return lerp(hash(a % p, 0, seed), hash((a + 1) % p, 0, seed), k); };
   let ridges = [];
 
@@ -337,6 +464,12 @@ function startHost() {
   }
   const dust = Particles(700, false), spark = Particles(700, true);
   const rnd = (a, b) => a + Math.random() * (b - a);
+  const emissionCarry = new Map();
+  function emissionCount(key, rate, dt) {
+    if (rate <= 0) { emissionCarry.delete(key); return 0; }
+    const amount = (emissionCarry.get(key) || 0) + rate * dt, count = Math.floor(amount + 1e-9);
+    emissionCarry.set(key, Math.max(0, amount - count)); return count;
+  }
 
   // ------------------------------------------------------------------
   // the player's rover, its tracks, dust devils
@@ -345,19 +478,59 @@ function startHost() {
   R.group.rotation.order = "YZX"; scene.add(R.group);
   let bodyOff = 0, bodyVel = 0, wheelSpin = 0, blink = 2;
 
-  const trackGeo = new T.PlaneGeometry(7, 5.5); trackGeo.rotateX(-Math.PI / 2);
-  const TRN = 900, tracks = new T.InstancedMesh(trackGeo, new T.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }), TRN);
+  // The tyres have six straight crosswise blocks, so each impression uses
+  // the same width, contact length and rolling pitch as the actual wheel.
+  const tread = R.wheels[0].userData.tread;
+  const trackGeo = new T.PlaneGeometry(tread.width, tread.length); trackGeo.rotateX(-Math.PI / 2);
+  const TRN = 2400, trackLife = new Float32Array(TRN), trackFade = new Float32Array(TRN);
+  trackGeo.setAttribute("aFade", new T.InstancedBufferAttribute(trackFade, 1));
+  const trackMat = new T.ShaderMaterial({
+    uniforms: { ink: { value: new T.Color(0x302436) } },
+    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    vertexShader: "attribute float aFade; varying float vFade; void main(){vFade=aFade; gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.0);}",
+    fragmentShader: "uniform vec3 ink; varying float vFade; void main(){float a=vFade*.24; if(a<.005) discard; gl_FragColor=vec4(ink,a);}"
+  });
+  const tracks = new T.InstancedMesh(trackGeo, trackMat, TRN);
   tracks.frustumCulled = false; tracks.count = 0; scene.add(tracks);
+  const trackDummy = new T.Object3D();
   let trackI = 0, trackLast = [1e9, 1e9];
-  function layTrack() {
-    if (Math.hypot(rover.x - trackLast[0], rover.y - trackLast[1]) < 7) return; trackLast = [rover.x, rover.y];
-    const c = Math.cos(rover.h), s = Math.sin(rover.h);
-    for (const side of [-12.5, 12.5]) {
-      const x = rover.x - s * side - c * 10, z = rover.y + c * side - s * 10;
-      dummy.position.set(x, H(x, z) + .6, z); dummy.rotation.set(0, -rover.h, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
-      tracks.setMatrixAt(trackI % TRN, dummy.matrix); trackI++;
+  function resetTracks() {
+    trackI = 0; tracks.count = 0; trackLast = [1e9, 1e9]; trackLife.fill(0); trackFade.fill(0);
+    trackGeo.attributes.aFade.needsUpdate = true;
+  }
+  function updateTracks(dt) {
+    if (mode === "pause" || bookOpen) return;
+    let dirty = false;
+    for (let i = 0; i < tracks.count; i++) if (trackLife[i] > 0) {
+      trackLife[i] = Math.max(0, trackLife[i] - dt);
+      trackFade[i] = smooth(Math.min(1, trackLife[i] / 9)); dirty = true;
     }
+    if (dirty) trackGeo.attributes.aFade.needsUpdate = true;
+  }
+  function layTrack() {
+    const dx = rover.x - trackLast[0], dz = rover.y - trackLast[1], distance = Math.hypot(dx, dz);
+    if (distance < tread.pitch) return;
+    // Fill the distance travelled between frames, keeping rib spacing steady
+    // at any speed. A fresh trail or teleport starts at the current position.
+    const fresh = distance > 150, count = fresh ? 1 : Math.floor(distance / tread.pitch);
+    const c = Math.cos(rover.h), s = Math.sin(rover.h);
+    const axle = (rover.v < 0 ? Math.max : Math.min)(...R.wheels.map(w => w.userData.x));
+    let px = rover.x, pz = rover.y;
+    for (let step = 1; step <= count; step++) {
+      px = fresh ? rover.x : trackLast[0] + dx * (step * tread.pitch / distance);
+      pz = fresh ? rover.y : trackLast[1] + dz * (step * tread.pitch / distance);
+      for (const wheel of R.wheels) {
+        if (wheel.userData.x !== axle) continue;
+        const side = wheel.userData.z;
+        const x = px - s * side + c * axle, z = pz + c * side + s * axle;
+        const f = H(x + c * 3, z + s * 3), b = H(x - c * 3, z - s * 3);
+        trackDummy.position.set(x, H(x, z) + .5, z); trackDummy.rotation.set(-Math.atan2(f - b, 6), Math.PI / 2 - rover.h, 0, "YXZ"); trackDummy.scale.set(1, 1, 1); trackDummy.updateMatrix();
+        const index = trackI % TRN; tracks.setMatrixAt(index, trackDummy.matrix); trackLife[index] = 14; trackFade[index] = 1; trackI++;
+      }
+    }
+    trackLast = [px, pz];
     tracks.count = Math.min(TRN, trackI); tracks.instanceMatrix.needsUpdate = true;
+    trackGeo.attributes.aFade.needsUpdate = true;
   }
 
   const devils = [];
@@ -387,7 +560,10 @@ function startHost() {
 
   function buildWorld() {
     scene.remove(worldGroup);
-    worldGroup.traverse(o => { if (o.isSprite && o.material.map) { o.material.map.dispose(); o.material.dispose(); } });
+    Models.dispose(worldGroup, { geometries: [beamGeo, ringGeo, starGeo], materials: [starMat], textures: [beamTex, glowTex] });
+    terrainJob = null; terrain.visible = false; tcx = 1e9;
+    solids = []; sands = [];
+    [rocks, mesas, boulders, rims, ripples, mesaLandmarks.bands, mesaLandmarks.caps, mesaLandmarks.arches].forEach(mesh => mesh.count = 0);
     worldGroup = new T.Group(); scene.add(worldGroup);
     sites = WD.sites.map(s => { const [x, y] = toXY(s.lat, s.lon); return Object.assign({}, s, { x, y }); });
     stars = WD.stars.map(([lat, lon, fact], i) => { const [x, y] = toXY(lat, lon); return { id: worldKey + i, x, y, fact }; });
@@ -421,20 +597,21 @@ function startHost() {
   }
 
   function setWorld(k) {
+    discoveryFx.cancel();
     worldKey = k; WD = WORLDS[k]; W = { w: (WD.lonMax - WD.lonMin) * WD.ppd, h: (WD.latMax - WD.latMin) * WD.ppd };
     sites = []; buildWorld();
     [rover.x, rover.y] = toXY(WD.start[0], WD.start[1]);
     Object.assign(rover, { v: 0, h: -Math.PI / 2, vy: 0, air: false, boost: 0, alt: H(rover.x, rover.y) }); rover.gPrev = rover.alt; camH = rover.h;
-    trackI = 0; tracks.count = 0; dust.clear(); spark.clear(); tcx = 1e9; lastPing = -1;
+    resetTracks(); dust.clear(); spark.clear(); emissionCarry.clear(); tcx = 1e9; lastPing = -1;
     const moon = k === "moon";
     // the look of each world
     if (moon) {
       scene.fog = new T.Fog(0x55565c, 800, 1780); paintSky(0x000000, 0x000000, 0x55565c);
-      hemi.color.set(0x8c93b0); hemi.groundColor.set(0x2a2b33); hemi.intensity = .5; sun.color.set(0xffffff); sun.intensity = 1.25; sunDir.set(-.72, .36, .6).normalize();
+      hemi.color.set(0xb3c3f4); hemi.groundColor.set(0x30334e); hemi.intensity = .52; sun.color.set(0xfff8e9); sun.intensity = 1.04; fill.color.set(0xaecbff); fill.intensity = .15; sunDir.set(-.72, .36, .6).normalize();
       sunSp.material.color.set(0xffffff); sunSp.scale.set(2600, 2600, 1);
     } else {
       scene.fog = new T.Fog(0xe9b990, 500, 1780); paintSky(0xb9825a, 0xf2c79c, 0xe9b990);
-      hemi.color.set(0xffe0c0); hemi.groundColor.set(0x8a5234); hemi.intensity = .78; sun.color.set(0xfff0dc); sun.intensity = .8; sunDir.set(-.5, .62, .6).normalize();
+      hemi.color.set(0xffe9d2); hemi.groundColor.set(0x6c4f68); hemi.intensity = .62; sun.color.set(0xfff3df); sun.intensity = .8; fill.color.set(0xb9ceff); fill.intensity = .12; sunDir.set(-.5, .62, .6).normalize();
       sunSp.material.color.set(0xfff3d6); sunSp.scale.set(1700, 1700, 1);
     }
     // holograms glow (additive) against the black lunar sky, but need solid colour to show up against the bright Mars sky
@@ -444,14 +621,15 @@ function startHost() {
     for (const st of sites) { [st.beam, st.core, st.ring].forEach(m => { m.material.blending = blend; m.material.needsUpdate = true; }); st.beam.material.color.set(moon ? 0x59d8ff : 0x12a8ff); }
     starPts.visible = earth.visible = earthGlow.visible = moon;
     devils.forEach(d => { d.visible = !moon; d.userData.far = true; });
-    ridges.forEach(r => { scene.remove(r); r.geometry.dispose(); });
+    ridges.forEach(r => { scene.remove(r); Models.dispose(r); });
     ridges = moon
       ? [ridge(1790, 180, (i, n) => 40 + loopNoise(i, n, 15, 3) * 130 + loopNoise(i, n, 4, 4) * 30, 0xa9abb4, 0x55565c),
          ridge(1770, 180, (i, n) => 15 + loopNoise(i, n, 9, 5) * 70 + loopNoise(i, n, 3, 6) * 14, 0x7c7e87, 0x55565c)]
       : [ridge(1790, 180, (i, n) => 60 + loopNoise(i, n, 12, 7) * 190 + loopNoise(i, n, 3, 8) * 40, 0xd29a78, 0xe9b990),
          ridge(1770, 180, (i, n) => 20 + (loopNoise(i, n, 10, 9) > .55 ? 85 + loopNoise(i, n, 30, 10) * 50 : loopNoise(i, n, 5, 11) * 40), 0xb8663f, 0xe9b990)];
+    ridges.push(createHorizonLandmarks(T, moon));
     ridges.forEach(r => scene.add(r));
-    $("hudWorld").textContent = (moon ? "🌕 " : "🔴 ") + WD.label;
+    Icons.label($("hudWorld"), moon ? "moon" : "mars", WD.label);
     setupMini();
     document.querySelectorAll(".pick").forEach(b => b.classList.toggle("on", b.dataset.world === k));
     if (mode !== "lobby") Sfx.music(k);
@@ -471,13 +649,19 @@ function startHost() {
   const GAME_KEYS = new Set(["arrowup", "arrowdown", "arrowleft", "arrowright", "w", "a", "s", "d", " ", "enter", "escape", "m", "r", "b", "n", "p"]);
   const MENU_DIR = { arrowleft: -1, arrowup: -1, arrowright: 1, arrowdown: 1 };
   addEventListener("keydown", e => {
-    const k = e.key.toLowerCase(); keys[k] = true; Sfx.init();
+    const k = e.key.toLowerCase(), target = e.target;
+    // Keep native form controls and text selection usable inside settings.
+    if (target && ((target.matches && target.matches("input,select,textarea")) || target.isContentEditable)) {
+      if (k === "escape") { e.preventDefault(); action("back"); }
+      return;
+    }
+    keys[k] = true; Sfx.init();
+    const overlay = overlayNow(), menu = !!overlay && (mode !== "task" || graphicsBlocked);
     if (["arrowup", "arrowdown", "arrowleft", "arrowright", " ", "enter"].includes(k)) e.preventDefault();
     if (e.repeat) return;
     if (GAME_KEYS.has(k)) setCtrl("kb");
-    const menu = !!overlayNow() && mode !== "task";
     if (menu && k in MENU_DIR) { moveFocus(MENU_DIR[k]); return; }
-    if (k === "enter" || k === " ") { if (menu && padFocus) padFocus.click(); else action("next"); }
+    if (k === "enter" || k === " ") GameUI.activateFocused(overlay, () => action("next"));
     if (k === "m") action("world");
     if (k === "r") action("read");
     if (k === "b") action("book");
@@ -486,6 +670,17 @@ function startHost() {
     if (k === "escape") action("back");
   });
   addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+  function clearHeldInput() {
+    for (const k in keys) delete keys[k];
+    kbSteer = 0; rover.steer = 0; taskPulse = 0; pad = null;
+    if (Tasks.inp) Object.assign(Tasks.inp, { hold: false, press: false, mouseHold: false, x: 0 });
+  }
+  function pauseForFocusLoss() {
+    clearHeldInput(); stopReading();
+    if (mode === "play" || mode === "task" || mode === "count") openPause("The game paused while you were away. Resume when you're ready.");
+  }
+  addEventListener("blur", pauseForFocusLoss);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pauseForFocusLoss(); });
   addEventListener("pointerdown", () => Sfx.init());
   // Keyboard and game controller are both read every frame. Whichever one is being used wins:
   // the strongest steering and the hardest pedal press count, so nobody has to switch anything.
@@ -499,14 +694,25 @@ function startHost() {
   // ---- mission tasks: a short hands-on job when a ghost wakes up, before its story card ----
   let taskSite = null, taskPulse = 0; const tasksDone = new Set();
   const taskSfx = { done: () => Sfx.found(), snap: () => Sfx.star(), bump: () => Sfx.bump(.3) };
-  function startTask(st) {
-    if (!Tasks.has(st.id)) { openCard(st, "site"); return; }
+  function startTask(st, replay = false, taskWorld = worldKey) {
+    if (!Tasks.has(st.id)) { openCard(st, replay ? "review" : "site"); return; }
+    if (!replay) { pendingSite = st.id; pendingPhase = "task"; }
     mode = "task"; taskSite = st; rover.v = 0; $("toast").classList.remove("show"); toastT = 0; Tasks.has(st.id) && setTimeout(refreshPrompts, 0);
-    Tasks.start(st.id, { world: worldKey, sfx: n => (taskSfx[n] || (() => { }))(), buzz: k => Pad.rumble(k),
+    Tasks.start(st.id, { world: taskWorld, sfx: n => (taskSfx[n] || (() => { }))(), buzz: k => Pad.rumble(k),
       onEnd: ok => {
         taskSite = null;
-        if (ok) { tasksDone.add(st.id); addTime(10); toast("Bonus science star for finishing the task! +10s", "Mission task done ✓", "🛠"); }
-        openCard(st, "site");
+        if (ok) {
+          const first = !tasksDone.has(st.id); tasksDone.add(st.id);
+          if (first) {
+            const activeClock = clock.on && !clock.free[taskWorld];
+            if (activeClock && taskWorld === worldKey) addTime(10, true);
+            else if (activeClock) clock.left[taskWorld] += 10;
+            toast(activeClock ? "Bonus science star for finishing the task! +10s" : "Task sticker earned!", "Mission task done ✓", "🛠");
+          } else toast("Great work, explorer!", "Mission task done ✓", "🛠");
+        }
+        if (!replay) pendingPhase = "story";
+        saveProgress();
+        openCard(st, replay ? "review" : "site");
       } });
    
   }
@@ -515,23 +721,24 @@ function startHost() {
     Tasks.step(dt, { x: i.s, hold: i.g > 0 || keys.enter || keys[" "] || (pad && pad.down.cross) || taskPulse > 0 });
   }
 
-  // ---- which input is being used: the HUD pill and every on-screen button prompt follow it ----
+  // ---- button prompts follow the active input ----
   function setCtrl(kind) { if (kind !== ctrlNow) { ctrlNow = kind; refreshPrompts(); } }
   function refreshPrompts() {
     const k = ctrlNow, P = Prompts, key = P.key, set = (id, act) => { const el = $(id); if (el) el.dataset.key = act ? P.label(k, act) : ""; };
-    $("hudCtrl").textContent = "Driving with: " + P.K[k].name;
     document.querySelectorAll(".way").forEach(w => w.classList.toggle("on", w.dataset.way === k));
     set("cardNext", "next"); set("cardRead", "read"); set("reportKeep", "next"); set("kbStart", "next"); set("howClose", "next"); set("pauseResume", "next");
     set("bookClose", "back"); set("taskSkip", "skip");
+    const cardAction = cardKind === "review" ? "Back to sticker book" : cardKind === "deep" ? "Next signal" : cardKind === "end" ? "Back to title" : cardKind === "world" ? "Next destination" : "Keep exploring";
     const html = {
-      card: { pad: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]), kb: P.line(k, [["next", "Keep exploring"], ["read", "Read aloud"], ["back", "Close"]]) },
+      card: { pad: P.line(k, [["next", cardAction], ["read", "Read aloud"], ["back", "Close"]]), kb: P.line(k, [["next", cardAction], ["read", "Read aloud"], ["back", "Close"]]) },
       task: { pad: key("Left stick") + " move the hand · hold " + key("✕") + " to grab · " + key("○") + " skip", kb: key("←") + " " + key("→") + " move the hand · hold " + key("Enter") + " to grab · " + key("Esc") + " skip" },
       report: { pad: P.line(k, [["next", "Keep exploring"]]) + " · " + key("D-pad") + " choose a button", kb: P.line(k, [["next", "Keep exploring"]]) + " · " + key("←") + " " + key("→") + " choose a button" },
       book: { pad: key("○") + " or " + key("□") + " close", kb: key("Esc") + " or " + key("B") + " close" },
       pause: { pad: key("✕") + " or " + key("○") + " resume · " + key("D-pad") + " choose", kb: key("Enter") + " or " + key("Esc") + " resume · " + key("←") + " " + key("→") + " choose" }
     };
     $("cardKeys").innerHTML = html.card[k]; $("reportKeys").innerHTML = html.report[k]; $("bookKeys").innerHTML = html.book[k]; $("pauseKeys").innerHTML = html.pause[k];
-    const tk = document.getElementById("taskKeys"); if (tk) tk.innerHTML = html.task[k];
+    const tk = document.getElementById("taskKeys");
+    if (tk) tk.innerHTML = Tasks.steerOnly() ? (k === "pad" ? key("Left stick") : key("←") + " " + key("→")) + " adjust · " + key(k === "pad" ? "○" : "Esc") + " skip" : html.task[k];
   }
   function input() {
     let s = kbSteer, g = keys.arrowup || keys.w ? 1 : 0, r = keys.arrowdown || keys.s ? 1 : 0;
@@ -544,22 +751,22 @@ function startHost() {
   }
 
   // ---- game controller: buttons, menu focus, connect / disconnect messages ----
-  const overlayNow = () => howOpen ? $("howto") : mode === "pause" ? $("pause") : bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : mode === "task" ? $("task") : null;
+  const overlayNow = () => graphicsBlocked ? $("graphicsRecovery") : !$("newGameConfirm").classList.contains("hidden") ? $("newGameConfirm") : howOpen ? $("howto") : mode === "pause" ? $("pause") : bookOpen ? $("book") : mode === "card" ? $("card") : mode === "lobby" ? $("lobby") : mode === "report" ? $("report") : mode === "task" ? $("task") : null;
   let padFocus = null;
   function moveFocus(dir) {
-    const ov = overlayNow(); if (!ov) return;
-    const list = [...ov.querySelectorAll("button")].filter(b => b.offsetParent !== null); if (!list.length) return;
-    let i = list.indexOf(padFocus); i = i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length;
-    clearFocus(); padFocus = list[i]; padFocus.classList.add("padfocus"); padFocus.scrollIntoView({ block: "nearest" }); Sfx.click();
+    const next = GameUI.nextFocus(overlayNow(), dir); if (!next) return;
+    clearFocus(); padFocus = next; padFocus.classList.add("padfocus"); padFocus.focus({ preventScroll: true });
+    padFocus.scrollIntoView({ block: "nearest" }); Sfx.click();
   }
   function clearFocus() { if (padFocus) padFocus.classList.remove("padfocus"); padFocus = null; }
+  document.addEventListener("focusin", e => { if (padFocus && e.target !== padFocus) clearFocus(); });
   function pollPad() {
     pad = Pad.poll(); $("padChip").classList.toggle("hidden", !pad);
     if (!pad) return;
     if (padFocus && (!overlayNow() || !overlayNow().contains(padFocus) || padFocus.offsetParent === null)) clearFocus();
     for (const b of pad.pressed) {
       Sfx.init(); setCtrl("pad");
-      if (b === "cross") { if (padFocus) padFocus.click(); else action("next"); }
+      if (b === "cross") GameUI.activateFocused(overlayNow(), () => action("next"));
       else if (b === "circle") { action("back"); clearFocus(); }
       else if (b === "triangle") action("read");
       else if (b === "square") action("book");
@@ -585,15 +792,21 @@ function startHost() {
   function openPause(msg) {
     if (mode === "count") { mode = "play"; $("count").innerHTML = ""; $("intro").classList.remove("show"); countN = -1; }
     if (mode !== "play" && mode !== "task") return;
-    pausePrev = mode; mode = "pause"; rover.v = 0; clearFocus();
+    pausePrev = mode; mode = "pause"; rover.v = 0; clearHeldInput(); clearFocus();
     $("pauseMsg").textContent = msg || ""; $("pauseMsg").classList.toggle("hidden", !msg);
     $("pauseWorld").classList.toggle("hidden", pausePrev !== "play"); $("pauseTitle").classList.toggle("hidden", pausePrev !== "play");
-    $("pauseWorld").textContent = worldKey === "moon" ? "Go to Mars 🚀" : "Go to the Moon 🚀"; paintSound();
+    Icons.label($("pauseWorld"), "rocket", worldKey === "moon" ? "Go to Mars" : "Go to the Moon"); paintSound();
     $("pause").classList.remove("hidden"); showClock();
   }
-  function resume() { $("pause").classList.add("hidden"); clearFocus(); mode = pausePrev; showClock(); }
-  function paintSound() { $("pauseSound").textContent = Sfx.muted ? "🔇 Sound: Off" : "🔊 Sound: On"; }
-  function toTitle() { resume(); mode = "lobby"; Sfx.music(null); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock(); }
+  function resume() { clearHeldInput(); $("pause").classList.add("hidden"); clearFocus(); mode = pausePrev; showClock(); }
+  function paintSound() {
+    const icon = Sfx.muted ? "soundOff" : "sound";
+    Icons.label($("pauseSound"), icon, Sfx.muted ? "Sound: Off" : "Sound: On");
+    Icons.label($("muteBtn"), icon);
+    ["muteBtn", "pauseSound"].forEach(id => $(id).setAttribute("aria-pressed", String(!Sfx.muted)));
+    $("muteBtn").setAttribute("aria-label", Sfx.muted ? "Sound muted. Turn sound on" : "Sound on. Mute sound");
+  }
+  function toTitle() { saveProgress(); resume(); mode = "lobby"; Sfx.music(null); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock(); }
   $("pauseResume").onclick = () => action("next"); $("pauseWorld").onclick = () => action("world"); $("pauseSound").onclick = () => { action("mute"); paintSound(); }; $("pauseTitle").onclick = toTitle;
 
   // ---- How to play (title screen) ----
@@ -606,7 +819,12 @@ function startHost() {
   $("lightsBtn").onclick = async () => { const ok = await Pad.lights.connect(); if (ok) await padLight(); $("lightsBtn").textContent = ok ? "💡 Lights on" : "💡 Lights not available"; };
 
   function action(a) {
-    if (a === "mute") { Sfx.setMuted(!Sfx.muted); store.set("mute", Sfx.muted ? "1" : ""); $("muteBtn").textContent = Sfx.muted ? "🔇" : "🔊"; return; }
+    if (graphicsBlocked) return;
+    if (!$("newGameConfirm").classList.contains("hidden")) {
+      if (a === "back" || a === "next") $("newGameConfirm").classList.add("hidden");
+      return;
+    }
+    if (a === "mute") { Sfx.setMuted(!Sfx.muted); store.set("mute", Sfx.muted ? "1" : ""); paintSound(); return; }
     if (howOpen) { if (a === "next" || a === "back") closeHow(); return; }
     if (mode === "pause") {
       if (a === "next" || a === "back" || a === "pause") resume();
@@ -638,11 +856,32 @@ function startHost() {
   // ------------------------------------------------------------------
   // title screen, countdown
   // ------------------------------------------------------------------
+  // A stationary paint portrait reuses the story renderer. The clone shares
+  // existing rover assets; restore the story scene and camera without disposing them.
+  function paintRoverPreview(name) {
+    const thumb = Models.thumbSetup(), model = R.group.clone(true), previous = thumb.model;
+    const position = thumb.cam.position.clone(), rotation = thumb.cam.quaternion.clone(), yaw = thumb.holder.rotation.y;
+    model.position.set(0, 0, 0); model.rotation.set(0, 0, 0); model.scale.setScalar(1);
+    if (previous) thumb.holder.remove(previous);
+    thumb.holder.add(model); thumb.holder.rotation.y = 0;
+    try {
+      const bounds = new T.Box3().setFromObject(model), centre = bounds.getCenter(new T.Vector3()), size = bounds.getSize(new T.Vector3());
+      model.position.sub(centre);
+      const distance = (Math.max(size.x, size.y, size.z) * .5 + 4) / Math.tan(16 * Math.PI / 180) * .9;
+      thumb.cam.position.set(0, distance * .32, distance); thumb.cam.lookAt(0, 0, 0); thumb.holder.rotation.y = -.7;
+      thumb.renderer.render(thumb.scene, thumb.cam);
+      $("paintPreview").src = thumb.renderer.domElement.toDataURL("image/png"); $("paintPreview").alt = name + " rover preview";
+      $("paintName").textContent = name;
+    } finally {
+      thumb.holder.remove(model); if (previous) thumb.holder.add(previous);
+      thumb.cam.position.copy(position); thumb.cam.quaternion.copy(rotation); thumb.holder.rotation.y = yaw;
+    }
+  }
   ROVER_COLORS.forEach(([name, hex]) => {
-    const b = document.createElement("button"); b.className = "sw"; b.style.background = hex; b.title = name; b.setAttribute("aria-label", name + " rover");
+    const b = document.createElement("button"); b.className = "sw"; b.style.background = hex; b.title = name; b.setAttribute("aria-label", name + " rover"); b.setAttribute("aria-pressed", "false");
     b.onclick = () => { R.setColor(hex); store.set("color", hex); mark(); Sfx.init(); Sfx.click(); };
     $("swatches").appendChild(b);
-    function mark() { [...$("swatches").children].forEach(c => c.classList.toggle("on", c === b)); }
+    function mark() { [...$("swatches").children].forEach(c => { c.classList.toggle("on", c === b); c.setAttribute("aria-pressed", String(c === b)); }); paintRoverPreview(name); }
     if (store.get("color", ROVER_COLORS[1][1]) === hex) mark();
   });
   document.querySelectorAll(".pick").forEach(b => b.onclick = () => { Sfx.init(); Sfx.click(); if (worldKey !== b.dataset.world) setWorld(b.dataset.world); });
@@ -658,6 +897,7 @@ function startHost() {
     const el = $("hudTime"), t = clock.left[worldKey];
     el.classList.toggle("hidden", !clock.on || mode === "lobby");
     el.classList.toggle("low", timing() && t <= 30);
+    el.classList.toggle("free-explore", !!clock.free[worldKey]);
     $("timeTxt").textContent = clock.free[worldKey] ? "Free explore" : fmt(t);
   }
   function tickClock(dt) {
@@ -666,8 +906,8 @@ function startHost() {
     if (sec !== clock.sec) { clock.sec = sec; showClock(); if (sec <= 30 && sec > 0) Sfx.tick(); }
     if (t <= 0) openReport();
   }
-  function addTime(n) { if (!timing()) return; clock.left[worldKey] += n; showClock(); const b = $("timeBonus"); b.textContent = "+" + n + "s"; b.classList.remove("go"); void b.offsetWidth; b.classList.add("go"); }
-  const timerBtn = $("timerBtn"), paintTimerBtn = () => { timerBtn.textContent = "⏱ Timer: " + (clock.on ? "On" : "Off"); timerBtn.classList.toggle("off", !clock.on); };
+  function addTime(n, includeComplete = false) { if (!clock.on || clock.free[worldKey] || (!includeComplete && !timing())) return; clock.left[worldKey] += n; showClock(); const b = $("timeBonus"); b.textContent = "+" + n + "s"; b.classList.remove("go"); void b.offsetWidth; b.classList.add("go"); }
+  const timerBtn = $("timerBtn"), paintTimerBtn = () => { Icons.label(timerBtn, "clock", "Timer: " + (clock.on ? "On" : "Off")); timerBtn.classList.toggle("off", !clock.on); };
   timerBtn.onclick = () => { clock.on = !clock.on; store.set("timer", clock.on ? "1" : "0"); paintTimerBtn(); Sfx.init(); Sfx.click(); }; paintTimerBtn();
   // time's up: a friendly report, never "game over". You can always carry on.
   function openReport() {
@@ -675,7 +915,7 @@ function startHost() {
     $("repWorld").textContent = WD.label; $("repGhosts").textContent = sites.filter(s => found.has(s.id)).length + " / " + sites.length; $("repStars").textContent = stars.filter(s => starsGot.has(s.id)).length + " / " + stars.length; const bonus = sites.filter(s => tasksDone.has(s.id)).length; $("repBonus").textContent = bonus ? "+ " + bonus + " task bonus " + (bonus > 1 ? "stars" : "star") : "";
     $("report").classList.remove("hidden"); showClock();
   }
-  function keepExploring() { clock.free[worldKey] = true; $("report").classList.add("hidden"); mode = "play"; showClock(); }
+  function keepExploring() { clock.free[worldKey] = true; saveProgress(); $("report").classList.add("hidden"); mode = "play"; showClock(); }
   function tryAgain() { for (const s of sites) { found.delete(s.id); tasksDone.delete(s.id); } for (const s of stars) starsGot.delete(s.id); resetClock(worldKey); $("report").classList.add("hidden"); setWorld(worldKey); beginCount(); }
   $("reportKeep").onclick = keepExploring; $("reportRetry").onclick = tryAgain;
   const tips = new Set(); let bumpT = 0, sandBuzzT = 0;
@@ -684,13 +924,16 @@ function startHost() {
   $("bookBtn").onclick = () => action("book");
   $("bookClose").onclick = () => action("book");
   $("muteBtn").onclick = () => action("mute");
-  if (store.get("mute", "")) { Sfx.setMuted(true); $("muteBtn").textContent = "🔇"; }
+  if (store.get("mute", "")) Sfx.setMuted(true);
+  paintSound();
   const hudEls = ["hud", "hudR", "compass", "coords", "mini"];
   function startPlay() {
+    if (savedProgress) { continueGame(); return; }
+    progressStarted = true;
     Sfx.init(); $("lobby").classList.add("hidden"); hudEls.forEach(id => $(id).classList.remove("hidden"));
     Sfx.music(worldKey); beginCount();
   }
-  function beginCount() { mode = "count"; countT = 0; countN = -1; rover.v = 0; $("intro").innerHTML = "<b></b><span></span>"; $("intro").firstChild.textContent = (worldKey === "moon" ? "🌕 " : "🔴 ") + WD.label; $("intro").lastChild.textContent = WD.level; $("intro").classList.add("show"); showClock(); }
+  function beginCount() { mode = "count"; saveProgress(); countT = 0; countN = -1; rover.v = 0; $("intro").innerHTML = "<b></b><span></span>"; Icons.label($("intro").firstChild, worldKey, WD.label); $("intro").lastChild.textContent = WD.level; $("intro").classList.add("show"); showClock(); }
   function tickCount(dt) {
     countT += dt; const n = Math.floor(countT / .8);
     if (n !== countN) {
@@ -705,33 +948,42 @@ function startHost() {
   // story cards, sticker book, read aloud
   // ------------------------------------------------------------------
   const stickerImg = {};
-  [].concat(WORLDS.moon.sites, WORLDS.mars.sites, DEEP).forEach(s => stickerImg[s.id] = Models.sticker(s.type, s));
+  function getStickerImg(site) {
+    return stickerImg[site.id] || (stickerImg[site.id] = Models.sticker(site.type, site));
+  }
   $("cardArt").appendChild(Models.thumbSetup().renderer.domElement);
+  const discoveryFx = DiscoveryFX.create({ THREE: T, root: $("hostView"),
+    bookButton: () => $("bookBtn"), starTarget: () => $("hudStars").closest(".science") || $("hudStars").parentElement, getSticker: getStickerImg,
+    project(site) { const p = new T.Vector3(site.g.position.x, site.h0 + 26, site.y).project(camera); return { x: clamp((p.x + 1) * vw / 2, 70, vw - 70), y: clamp((1 - p.y) * vh / 2, 70, vh - 70) }; } });
 
   function openCard(site, kind) {
     card = site; cardKind = kind; mode = "card"; rover.v = 0;
-    window.speechSynthesis && speechSynthesis.cancel();
+    if (kind === "site") { pendingSite = site.id; pendingPhase = "story"; }
+    stopReading();
     $("cardKicker").textContent = site.kicker; $("cardName").textContent = site.name; $("cardWhere").textContent = site.where;
-    $("cardWow").textContent = site.wow || ""; $("cardWow").classList.toggle("hidden", !site.wow);
+    Icons.label($("cardWow"), "star", site.wow || ""); $("cardWow").classList.toggle("hidden", !site.wow);
     $("cardStory").textContent = site.story;
     $("cardFacts").innerHTML = "";
-    [["f1", "🔍 What I discovered", site.found], ["f2", "📍 Where I am now", site.now], ["f3", "🔧 Engineering secret", site.eng]].forEach(([c, t, txt]) => {
-      if (!txt) return; const d = document.createElement("div"); d.className = "fact " + c; d.innerHTML = "<b></b><span></span>"; d.firstChild.textContent = t; d.lastChild.textContent = txt; $("cardFacts").appendChild(d);
+    [["f1", "search", "What I discovered", site.found], ["f2", "pin", "Where I am now", site.now], ["f3", "tool", "Engineering secret", site.eng]].forEach(([c, icon, title, txt]) => {
+      if (!txt) return; const d = document.createElement("div"); d.className = "fact " + c; d.innerHTML = "<b></b><span></span>"; Icons.label(d.firstChild, icon, title); d.lastChild.textContent = txt; $("cardFacts").appendChild(d);
     });
     $("cardTag").textContent = site.lat !== undefined ? `Real landing site: ${Math.abs(site.lat).toFixed(2)}°${site.lat >= 0 ? "N" : "S"}, ${Math.abs(site.lon).toFixed(2)}°${site.lon >= 0 ? "E" : "W"}` : "";
-    $("cardRibbon").classList.toggle("hidden", kind === "world");
+    $("cardRibbon").classList.toggle("hidden", kind === "world" || kind === "review");
+    $("cardReplay").classList.toggle("hidden", kind !== "review" || !Tasks.has(site.id));
+    if (kind === "review") Icons.label($("cardReplay"), "tool", tasksDone.has(site.id) ? "Replay mission task" : "Try mission task");
     const other = worldKey === "moon" ? "mars" : "moon", otherDone = WORLDS[other].sites.every(s => found.has(s.id));
-    $("cardNext").textContent = kind === "world" ? (otherDone ? "Deep space signals… 📡" : other === "mars" ? "Launch to Mars 🚀" : "Fly to the Moon 🚀") : kind === "end" ? "Play again ↺" : kind === "deep" ? "Next signal 📡" : "Keep exploring ▶";
+    Icons.label($("cardNext"), kind === "world" ? otherDone ? "spark" : "rocket" : kind === "end" ? "home" : kind === "deep" ? "spark" : kind === "review" ? "book" : "play", kind === "world" ? (otherDone ? "Deep space signals…" : other === "mars" ? "Launch to Mars" : "Fly to the Moon") : kind === "end" ? "Back to title" : kind === "deep" ? "Next signal" : kind === "review" ? "Back to sticker book" : "Keep exploring");
     startCardWait(site, kind);
     $("card").classList.toggle("deep", kind === "deep" || kind === "end");
     $("cardTag").classList.toggle("hidden", !$("cardTag").textContent);
     Models.thumbShow(site.type, site);
-    $("card").classList.remove("hidden"); $("card").querySelector(".box").scrollTop = 0;
+    $("card").classList.remove("hidden"); $("card").querySelector(".box").scrollTop = 0; refreshPrompts();
+    saveProgress();
   }
   // ---- reading pause: the first time a ghost's or deep-space card opens, its main button waits 5 seconds ----
   let cardUnlockAt = 0; const cardSeen = new Set(), CARD_WAIT = 5;
   function startCardWait(site, kind) {
-    const b = $("cardNext"), waits = (kind === "site" || kind === "deep" || kind === "end") && !!site.id && !cardSeen.has(site.id);
+    const b = $("cardNext"), waits = Preferences.readingDelay && (kind === "site" || kind === "deep" || kind === "end") && !!site.id && !cardSeen.has(site.id);
     if (site.id && kind !== "world") cardSeen.add(site.id);
     cardUnlockAt = waits ? performance.now() + CARD_WAIT * 1000 : 0;
     b.classList.remove("pop"); b.classList.toggle("locked", waits); b.disabled = waits; b.style.setProperty("--p", 0);
@@ -746,10 +998,12 @@ function startHost() {
     b.classList.remove("locked"); void b.offsetWidth; b.classList.add("pop"); Sfx.chime();
   }
   function closeCard() {
-    window.speechSynthesis && speechSynthesis.cancel();
+    stopReading();
     $("card").classList.add("hidden");
     const k = cardKind; card = null; mode = "play";
+    if (k === "review") { returnToBook(); return; }
     if (k === "site") {
+      pendingSite = null; pendingPhase = null; saveProgress();
       updateHud();
       if (sites.every(s => found.has(s.id))) {
         confetti(); Sfx.cheer();
@@ -761,52 +1015,162 @@ function startHost() {
       if (!WORLDS[other].sites.every(s => found.has(s.id))) { setWorld(other); beginCount(); }
       else { deepI = 0; confetti(); openDeep(); }
     } else if (k === "deep") {
-      deepI++; openDeep();
+      pendingDeep = null; deepI++; openDeep();
     } else if (k === "end") {
-      found.clear(); starsGot.clear(); deepSeen.clear(); tasksDone.clear(); resetClock("moon"); resetClock("mars"); mode = "lobby"; Sfx.music(null);
-      setWorld("moon"); $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock();
+      pendingDeep = null; saveProgress(); mode = "lobby"; Sfx.music(null);
+      $("lobby").classList.remove("hidden"); hudEls.forEach(id => $(id).classList.add("hidden")); showClock(); paintProgress();
     }
    
   }
-  function openDeep() { const d = DEEP[deepI]; deepSeen.add(d.id); Sfx.found(); openCard(d, deepI === DEEP.length - 1 ? "end" : "deep"); }
+  function openDeep() { const d = DEEP[deepI]; pendingDeep = d.id; deepSeen.add(d.id); Sfx.found(); openCard(d, deepI === DEEP.length - 1 ? "end" : "deep"); }
+  let narration = null;
+  function stopReading() {
+    narration = null;
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    Sfx.narration(false);
+    Icons.label($("cardRead"), "sound", "Read aloud"); $("cardRead").setAttribute("aria-pressed", "false");
+  }
   function readAloud() {
     if (!card || !window.speechSynthesis) return;
-    if (speechSynthesis.speaking) { speechSynthesis.cancel(); return; }
+    if (narration) { stopReading(); return; }
     const txt = [card.name + ".", card.wow, card.story, card.found && "What I discovered. " + card.found, card.now && "Where I am now. " + card.now, card.eng && "Engineering secret. " + card.eng].filter(Boolean).join(" ");
-    const u = new SpeechSynthesisUtterance(txt); u.rate = .95; speechSynthesis.speak(u);
+    const u = new SpeechSynthesisUtterance(txt); u.rate = .95; u.lang = "en-US";
+    narration = u; Sfx.narration(true);
+    Icons.label($("cardRead"), "stop", "Stop reading"); $("cardRead").setAttribute("aria-pressed", "true");
+    const finish = () => { if (narration === u) stopReading(); };
+    u.onend = finish; u.onerror = finish;
+    try { speechSynthesis.speak(u); } catch (_) { finish(); }
   }
+  $("cardRead").disabled = !window.speechSynthesis;
+  $("cardRead").setAttribute("aria-pressed", "false");
+  Preferences.subscribe(key => {
+    if (key === "readingDelay" && !Preferences.readingDelay && cardUnlockAt) { cardUnlockAt = performance.now(); tickCardWait(); }
+  });
   $("cardNext").onclick = () => action("next");
   $("cardRead").onclick = () => action("read");
 
-  function toggleBook() {
+  function reviewSite(site, isTask = false) {
+    bookReturn = { x: rover.x, y: rover.y, h: rover.h, world: worldKey, scrollTop: $("book").querySelector(".box").scrollTop };
+    bookOpen = false; $("book").classList.add("hidden");
+    const owner = Object.keys(WORLDS).find(k => WORLDS[k].sites.some(s => s.id === site.id));
+    if (isTask) startTask(site, true, owner || worldKey); else openCard(site, "review");
+  }
+  function returnToBook() {
+    const scrollTop = bookReturn ? bookReturn.scrollTop : 0;
+    if (bookReturn) { Object.assign(rover, { x: bookReturn.x, y: bookReturn.y, h: bookReturn.h, v: 0, vy: 0, air: false }); rover.alt = rover.gPrev = H(rover.x, rover.y); camInit = false; }
+    bookReturn = null; mode = "play";
+    if (!bookOpen) toggleBook(scrollTop);
+  }
+  $("cardReplay").onclick = () => {
+    if (!card || cardKind !== "review") return;
+    const site = card, owner = Object.keys(WORLDS).find(k => WORLDS[k].sites.some(s => s.id === site.id));
+    stopReading();
+    $("card").classList.add("hidden"); card = null;
+    startTask(site, true, owner || worldKey);
+  };
+  function toggleBook(scrollTop = 0) {
     bookOpen = !bookOpen; $("book").classList.toggle("hidden", !bookOpen); Sfx.click();
     if (bookOpen) {
-      const body = $("bookBody"); body.innerHTML = "";
-      const section = (title, list, have) => {
-        const h = document.createElement("h3"); h.textContent = title; body.appendChild(h);
+      rover.v = 0;
+      // The collected facts live here; an old driving toast must not cover stickers.
+      $("toast").classList.remove("show"); toastT = 0;
+      const body = $("bookBody"), nav = $("bookNav"); body.innerHTML = ""; nav.innerHTML = "";
+      const addJump = (id, title, icon, earned, total) => {
+        const button = document.createElement("button"); button.type = "button"; button.className = "book-jump";
+        button.setAttribute("aria-label", "Jump to " + title + ": " + earned + " of " + total + " collected");
+        Icons.label(button, icon, title);
+        const count = document.createElement("span"); count.className = "section-count"; count.textContent = earned + "/" + total; button.appendChild(count);
+        button.onclick = () => {
+          const target = $(id), pane = $("book").querySelector(".box"), header = $("bookHeader");
+          if (!target) return;
+          pane.scrollTop = Math.max(0, pane.scrollTop + target.getBoundingClientRect().top - pane.getBoundingClientRect().top - header.offsetHeight - 12);
+          nav.querySelectorAll("button").forEach(b => b.removeAttribute("aria-current")); button.setAttribute("aria-current", "location");
+          target.focus({ preventScroll: true }); Sfx.click();
+        };
+        nav.appendChild(button);
+      };
+      const section = (title, list, have, task = false, planet = "deep") => {
+        const icon = task ? "tool" : planet === "deep" ? "spark" : planet, earned = list.filter(have).length;
+        const h = document.createElement("h3"); h.id = "book-section-" + (task ? "tasks" : planet); h.tabIndex = -1; Icons.label(h, icon, title);
+        const count = document.createElement("span"); count.className = "section-count"; count.textContent = earned + " / " + list.length; h.appendChild(count); body.appendChild(h);
+        addJump(h.id, task ? "Tasks" : planet === "moon" ? "Moon" : title, icon, earned, list.length);
         const grid = document.createElement("div"); grid.className = "stickers"; body.appendChild(grid);
         list.forEach((s, i) => {
-          const ok = have(s), d = document.createElement("div"); d.className = "stk" + (ok ? "" : " no"); d.style.setProperty("--r", ok ? ((i % 3) - 1) * 2.5 + "deg" : "0deg");
-          const im = document.createElement("img"); im.src = stickerImg[s.id]; im.alt = ok ? s.name : "Not found yet"; d.appendChild(im);
-          d.appendChild(document.createTextNode(ok ? (s.short || s.name) : "???")); grid.appendChild(d);
+          const ok = have(s), available = task ? found.has(s.id) : ok;
+          const d = document.createElement(available ? "button" : "div"); d.className = "stk" + (ok ? "" : " no"); d.style.setProperty("--r", ok ? ((i % 3) - 1) * 2.5 + "deg" : "0deg");
+          d.dataset.planet = task ? Object.keys(WORLDS).find(k => WORLDS[k].sites.some(site => site.id === s.id)) || "deep" : planet;
+          if (available) { const im = document.createElement("img"); im.src = getStickerImg(s); im.alt = ""; im.loading = "lazy"; d.appendChild(im); }
+          else { const placeholder = document.createElement("span"); placeholder.className = "sticker-placeholder"; placeholder.setAttribute("aria-hidden", "true"); placeholder.textContent = "?"; d.appendChild(placeholder); }
+          const name = task ? Tasks.title(s.id) : (s.short || s.name);
+          const caption = document.createElement("span"); caption.className = "patch-name"; caption.textContent = available ? name : "Signal waiting"; d.appendChild(caption);
+          const badge = document.createElement("span"); badge.className = "patch-status" + (task && ok ? " complete" : available && task ? " ready" : "");
+          Icons.label(badge, !available ? "lock" : task ? ok ? "check" : "tool" : "book", !available ? "Not found" : task ? ok ? "Complete" : "Try task" : "Read story"); d.appendChild(badge);
+          if (task && ok) { const seal = document.createElement("span"); seal.className = "patch-seal"; seal.setAttribute("aria-hidden", "true"); seal.innerHTML = Icons.svg("check"); d.appendChild(seal); }
+          if (available) { d.type = "button"; d.id = "sticker-" + (task ? "task-" : "story-") + s.id; d.setAttribute("aria-label", (task ? (ok ? "Replay task: " : "Try task: ") : "Read story: ") + name); d.onclick = () => reviewSite(s, task); }
+          else d.setAttribute("aria-label", "Not found yet");
+          grid.appendChild(d);
         });
       };
-      section("🌕 The Moon", WORLDS.moon.sites, s => found.has(s.id));
-      section("🔴 Mars", WORLDS.mars.sites, s => found.has(s.id));
-      section("✨ Deep space", DEEP, s => deepSeen.has(s.id));
-      section("🛠 Mission tasks", [].concat(WORLDS.moon.sites, WORLDS.mars.sites).filter(s => Tasks.has(s.id)).map(s => ({ id: s.id, name: Tasks.title(s.id), short: Tasks.title(s.id) })), s => tasksDone.has(s.id));
+      section("The Moon", WORLDS.moon.sites, s => found.has(s.id), false, "moon");
+      section("Mars", WORLDS.mars.sites, s => found.has(s.id), false, "mars");
+      section("Deep space", DEEP, s => deepSeen.has(s.id));
+      section("Mission tasks", [].concat(WORLDS.moon.sites, WORLDS.mars.sites).filter(s => Tasks.has(s.id)), s => tasksDone.has(s.id), true);
       const ul = $("bookFacts"); ul.innerHTML = "";
       for (const k in WORLDS) WORLDS[k].stars.forEach((s, i) => {
         const li = document.createElement("li"), ok = starsGot.has(k + i); li.className = ok ? "" : "no";
-        li.textContent = ok ? s[2] : "A star is still waiting on " + (k === "moon" ? "the Moon" : "Mars") + "…"; ul.appendChild(li);
+        Icons.label(li, "star", ok ? s[2] : "A star is still waiting on " + (k === "moon" ? "the Moon" : "Mars") + "…"); ul.appendChild(li);
       });
-      $("book").querySelector(".box").scrollTop = 0;
+      const starTotal = Object.values(WORLDS).reduce((n, w) => n + w.stars.length, 0);
+      addJump("book-section-stars", "Stars", "star", starsGot.size, starTotal);
+      $("book").querySelector(".box").scrollTop = scrollTop;
     }
-   
   }
 
+  function continueGame() {
+    if (!savedProgress) { startPlay(); return; }
+    const data = savedProgress;
+    for (const [set, ids] of [[found, data.found], [starsGot, data.stars], [tasksDone, data.tasks], [deepSeen, data.deep], [cardSeen, data.seen]]) { set.clear(); ids.forEach(id => set.add(id)); }
+    for (const k of Object.keys(WORLDS)) { clock.left[k] = data.clocks[k].left; clock.free[k] = data.clocks[k].free; }
+    pendingSite = data.pendingSite; pendingDeep = data.pendingDeep || null;
+    pendingPhase = !pendingSite ? null : data.pendingPhase || (data.seen.includes(pendingSite) || tasksDone.has(pendingSite) ? "story" : "task");
+    progressStarted = true;
+    setWorld(data.world);
+    Object.assign(rover, data.rover, { v: 0, vy: 0, air: false, boost: 0, gVy: 0 }); rover.alt = rover.gPrev = H(rover.x, rover.y); camInit = false;
+    Sfx.init(); Sfx.music(worldKey); $("lobby").classList.add("hidden"); hudEls.forEach(id => $(id).classList.remove("hidden"));
+    const pending = sites.find(s => s.id === pendingSite);
+    if (pending) { if (pendingPhase === "story" || tasksDone.has(pending.id)) openCard(pending, "site"); else startTask(pending); }
+    else if (sites.every(s => found.has(s.id))) {
+      const other = worldKey === "moon" ? "mars" : "moon";
+      if (WORLDS[other].sites.every(s => found.has(s.id))) {
+        deepI = pendingDeep ? DEEP.findIndex(s => s.id === pendingDeep) : DEEP.findIndex(s => !deepSeen.has(s.id));
+        if (deepI < 0) { mode = "play"; clock.free[worldKey] = true; toast("Open the sticker book to revisit your stories and mission tasks.", "Welcome back, explorer!", "📒"); }
+        else openDeep();
+      } else {
+        const scored = clock.on && !clock.free[worldKey];
+        openCard(Object.assign({}, WORLD_DONE[worldKey], scored ? { wow: "Mission complete with " + fmt(clock.left[worldKey]) + " to spare! ⭐" } : {}), "world");
+      }
+    } else if (clock.on && !clock.free[worldKey] && clock.left[worldKey] <= 0) openReport();
+    else beginCount();
+    showClock(); updateHud();
+  }
+  function newGame() {
+    $("newGameConfirm").classList.add("hidden");
+    progressStarted = false; savedProgress = null; progress.clear(); pendingSite = null; pendingPhase = null; pendingDeep = null; bookReturn = null;
+    found.clear(); starsGot.clear(); deepSeen.clear(); tasksDone.clear(); cardSeen.clear(); resetClock("moon"); resetClock("mars");
+    mode = "lobby"; setWorld(worldKey); paintProgress(); startPlay();
+  }
+  $("continueBtn").onclick = continueGame;
+  $("newGameBtn").onclick = () => $("newGameConfirm").classList.remove("hidden");
+  $("newGameCancel").onclick = () => $("newGameConfirm").classList.add("hidden");
+  $("newGameConfirmBtn").onclick = newGame;
+  paintProgress();
+  setInterval(() => { if (progressStarted && mode !== "lobby") saveProgress(); }, 2000);
+  addEventListener("pagehide", saveProgress);
+  addEventListener("blur", saveProgress);
+
   let toastT = 0;
-  function toast(txt, title, ico) { $("toast").classList.toggle("top", mode !== "play" && mode !== "count"); $("toastTxt").textContent = txt; $("toastTitle").textContent = title || "Science star!"; $("toastIco").textContent = ico || "⭐"; $("toast").classList.add("show"); toastT = title ? 4 : 8; }
+  const toastIcons = { "⭐": "star", "🛠": "tool", "🎮": "controller", "⚠️": "report", "💡": "spark", "📒": "book" };
+  function toast(txt, title, ico) { $("toast").classList.toggle("top", mode !== "play" && mode !== "count"); $("toastTxt").textContent = txt; $("toastTitle").textContent = title || "Science star!"; Icons.label($("toastIco"), toastIcons[ico] || (Icons.names.includes(ico) ? ico : "star")); $("toast").classList.add("show"); toastT = title ? 4 : 8; }
 
   // confetti (drawn on a 2D canvas above the game)
   let conf = [];
@@ -829,7 +1193,11 @@ function startHost() {
     $("hudStars").textContent = `${stars.filter(s => starsGot.has(s.id)).length}/${stars.length}`;
   }
   function setSignal(n, label) {
-    if (n !== sig) document.querySelectorAll("#signal .bars i").forEach((b, i) => b.classList.toggle("on", i < n));
+    if (n !== sig) {
+      document.querySelectorAll("#signal .bars i").forEach((b, i) => b.classList.toggle("on", i < n));
+      $("signal").setAttribute("aria-label", "Signal strength: " + n + " of 4");
+    }
+    if (!!sigDist !== !!label) $("signal").classList.toggle("hidden", !label);
     sig = n; sigDist = label;
   }
   // ---- minimap: a round "radar" centred on the rover, north always up ----
@@ -842,58 +1210,73 @@ function startHost() {
     mars: { cols: [[176, 78, 48], [226, 130, 70], [240, 196, 142]], cuts: [.4, .63], crater: "rgba(120,40,20,.24)", ring: "rgba(255,225,190,.4)" }
   };
   function setupMini() {
-    const c = $("mini"), S = Math.round(Math.min(340, innerHeight * .44, innerWidth * .29)), dpr = Math.min(2, window.devicePixelRatio || 1), moon = worldKey === "moon";
+    const c = $("mini"), S = Math.max(120, Math.round(Math.min(340, innerHeight * .44, innerWidth * .29))), dpr = Math.min(2, window.devicePixelRatio || 1), moon = worldKey === "moon";
     const range = moon ? 1800 : 1000; // how far the radar sees, in map units: about 450 km on the Moon, about 1,000 km on Mars
     Object.assign(mini, { S, dpr, R: S / 2, Rin: S / 2 - RIM, range, k: (S / 2 - RIM) / range });
     c.style.width = c.style.height = S + "px"; c.width = c.height = Math.round(S * dpr);
     c.style.setProperty("--glow", moon ? "#9db8ff" : "#ff9a3c");
     buildMiniOverlay();
-    const key = worldKey + S; if (key !== mini.key) { mini.key = key; mini.ready = false; clearTimeout(mini.job); mini.job = setTimeout(buildMiniTerrain, 30); }
+    const key = worldKey; if (key !== mini.key) { mini.key = key; mini.ready = false; clearTimeout(mini.job); mini.job = setTimeout(buildMiniTerrain, 30); }
   }
-  function buildMiniTerrain() {
-    const { k, range } = mini, B = BANDS[worldKey], step = 40, mX = WD.wrap ? 0 : range, mY = range; // margins so the radar can look past the map edge
-    const lw = Math.ceil((W.w + 2 * mX) / step), lh = Math.ceil((W.h + 2 * mY) / step) + 1;
-    // 1) a small, smooth height picture (one sample every 40 map units), using the same big hills as the 3D ground
-    const low = document.createElement("canvas"); low.width = lw + 2; low.height = lh;
-    const lg = low.getContext("2d"), li = lg.createImageData(lw + 2, lh);
-    for (let y = 0; y < lh; y++) for (let x = 0; x < lw + 2; x++) {
-      const wx = (x - 1) * step - mX, wz = y * step - mY, v = vn(wx, wz, 1200, 11) * .8 + vn(wx, wz, 600, 15) * .2, i = (y * (lw + 2) + x) * 4;
-      li.data[i] = li.data[i + 1] = li.data[i + 2] = clamp(v, 0, 1) * 255; li.data[i + 3] = 255;
+  // Show a quick coarse map, then refine it at four times the resolution.
+  // Both passes build in short batches; refined maps stay cached per planet.
+  const miniCache = new Map(); let miniBuild = null;
+  function buildMiniTerrain(refine = false) {
+    const key = worldKey, range = worldKey === "moon" ? 1800 : 1000;
+    const cached = miniCache.get(key);
+    if (cached) {
+      Object.assign(mini, cached, { ready: true });
+      if (cached.rasterK >= 1 / 10) return;
+      refine = true; // finish an earlier refinement interrupted by a planet switch
     }
-    lg.putImageData(li, 0, 0);
-    // 2) blow it up smoothly, then turn the heights into three flat colour bands with soft edges
-    const tw = Math.ceil(W.w * k + 2 * mX * k), th = Math.ceil((W.h + 2 * mY) * k), c = document.createElement("canvas"); c.width = tw; c.height = th;
-    const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
-    g.drawImage(low, -step * k, 0, (lw + 2) * step * k, lh * step * k);
-    const lut = [], lutOut = [], sm = (a, b, v) => smooth((v - a) / (b - a)), w = .02;
+    const rasterK = refine ? 1 / 10 : 1 / 40, mX = WD.wrap ? 0 : range, mY = range;
+    const c = document.createElement("canvas");
+    c.width = Math.ceil((W.w + 2 * mX) * rasterK); c.height = Math.ceil((W.h + 2 * mY) * rasterK);
+    const g = c.getContext("2d"), im = g.createImageData(c.width, c.height), B = BANDS[key];
+    const lut = [], lutOut = [], band = (cut, v) => smooth((v - cut + .006) / .012);
     for (let n = 0; n < 256; n++) {
-      const v = n / 255, a = sm(B.cuts[0] - w, B.cuts[0] + w, v), b = sm(B.cuts[1] - w, B.cuts[1] + w, v);
+      const v = n / 255, a = band(B.cuts[0], v), b = band(B.cuts[1], v);
       const col = [0, 1, 2].map(q => lerp(lerp(B.cols[0][q], B.cols[1][q], a), B.cols[2][q], b)), grey = (col[0] + col[1] + col[2]) / 3;
-      lut.push(col); lutOut.push(col.map(q => lerp(q, grey, .45) * .8)); // ground beyond the edge of the map: greyer and darker
+      lut.push(col); lutOut.push(col.map(q => lerp(q, grey, .45) * .8));
     }
-    const im = g.getImageData(0, 0, tw, th), d = im.data, y0 = mY * k, y1 = (mY + W.h) * k, x0 = mX * k, x1 = (mX + W.w) * k;
-    for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
-      const i = (y * tw + x) * 4, col = (y < y0 || y > y1 || (!WD.wrap && (x < x0 || x > x1)) ? lutOut : lut)[d[i]];
-      d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2];
+    miniBuild = { key, c, g, im, B, rasterK, mX, mY, row: 0, lut, lutOut };
+  }
+  function stepMiniTerrain() {
+    const job = miniBuild; if (!job) return;
+    if (job.key !== worldKey) { miniBuild = null; return; }
+    const { c, g, im, B, rasterK: k, mX, mY } = job, start = performance.now();
+    let rows = 0;
+    while (job.row < c.height && rows < 12 && (rows === 0 || performance.now() - start < 2)) {
+      const y = job.row++, wz = (y + .5) / k - mY; rows++;
+      for (let x = 0; x < c.width; x++) {
+        const wx = (x + .5) / k - mX, v = vn(wx, wz, 1200, 11) * .8 + vn(wx, wz, 600, 15) * .2;
+        const outside = wz < 0 || wz > W.h || (!WD.wrap && (wx < 0 || wx > W.w));
+        const col = (outside ? job.lutOut : job.lut)[clamp(Math.round(v * 255), 0, 255)], i = (y * c.width + x) * 4;
+        im.data[i] = col[0]; im.data[i + 1] = col[1]; im.data[i + 2] = col[2]; im.data[i + 3] = 255;
+      }
     }
+    if (job.row < c.height) return;
     g.putImageData(im, 0, 0);
-    // 3) a few soft round craters: the biggest of the real craters you can drive into
-    // 3) soft round craters (the biggest on the Moon; every one on Mars, because there they block the way) and soft sand patches
     const moon = worldKey === "moon", [cell, prob, rmin, rmax, keep] = moon ? [400, .62, 30, 140, 78] : [900, .25, 40, 110, 0];
-    const blob = (x, z, r, fill, ring) => { for (const o of WD.wrap ? [-W.w, 0, W.w] : [0]) { const X = (x + o + mX) * k, Y = (z + mY) * k, rr = Math.max(3, r * k); g.fillStyle = fill; g.beginPath(); g.arc(X, Y, rr, 0, 7); g.fill(); if (ring) { g.strokeStyle = ring; g.lineWidth = 1.2; g.beginPath(); g.arc(X, Y, rr, .2, 2.6); g.stroke(); } } };
+    const blob = (x, z, r, fill, ring) => { for (const o of WD.wrap ? [-W.w, 0, W.w] : [0]) {
+      const X = (x + o + mX) * k, Y = (z + mY) * k, rr = Math.max(.6, r * k);
+      g.fillStyle = fill; g.beginPath(); g.arc(X, Y, rr, 0, 7); g.fill();
+      if (ring) { g.strokeStyle = ring; g.lineWidth = Math.max(.4, k * 6); g.beginPath(); g.arc(X, Y, rr, .2, 2.6); g.stroke(); }
+    } };
     if (!moon) for (let ix = 0; ix < W.w / 600; ix++) for (let iz = -2; iz <= Math.ceil((W.h + mY) / 600); iz++) { const sd = sandAt(ix, iz); if (sd) blob(sd.x, sd.z, sd.r, "rgba(110,44,26,.3)"); }
     for (let ix = Math.floor(-mX / cell) - 1; ix <= Math.ceil((W.w + mX) / cell); ix++) for (let iz = Math.floor(-mY / cell) - 1; iz <= Math.ceil((W.h + mY) / cell); iz++) {
-      const cr = craterCell(ix, iz, cell, prob, rmin, rmax); if (!cr || cr.r < keep) continue;
-      blob((ix + cr.fx) * cell, (iz + cr.fz) * cell, cr.r, B.crater, B.ring);
+      const cr = craterCell(ix, iz, cell, prob, rmin, rmax); if (cr && cr.r >= keep) blob((ix + cr.fx) * cell, (iz + cr.fz) * cell, cr.r, B.crater, B.ring);
     }
-    Object.assign(mini, { terrain: c, mX, mY, ready: true });
+    const result = { terrain: c, mX, mY, rasterK: k };
+    miniCache.set(job.key, result); Object.assign(mini, result, { ready: true }); miniBuild = null;
+    if (job.rasterK < 1 / 10) buildMiniTerrain(true);
   }
   function buildMiniOverlay() { // very soft globe shading, glowing rim, curved planet name and the N for north
     const { S, dpr, R, Rin } = mini, moon = worldKey === "moon", c = document.createElement("canvas"); c.width = c.height = Math.round(S * dpr);
     const g = c.getContext("2d"); g.scale(dpr, dpr);
     const sh = g.createRadialGradient(R, R, Rin * .72, R, R, Rin); sh.addColorStop(0, "rgba(10,14,50,0)"); sh.addColorStop(.75, "rgba(10,14,50,.1)"); sh.addColorStop(1, "rgba(10,14,50,.38)");
     g.fillStyle = sh; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.fill();
-    const hi = g.createRadialGradient(R - Rin * .4, R - Rin * .45, 0, R - Rin * .4, R - Rin * .45, Rin * .8); hi.addColorStop(0, "rgba(255,255,255,.14)"); hi.addColorStop(1, "rgba(255,255,255,0)");
+    const hi = g.createRadialGradient(R - Rin * .4, R - Rin * .45, 0, R - Rin * .4, R - Rin * .45, Rin * .8); hi.addColorStop(0, "rgba(255,255,255,.07)"); hi.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = hi; g.beginPath(); g.arc(R, R, Rin, 0, 7); g.fill();
     const rim = g.createLinearGradient(0, 0, S, S); (moon ? ["#e3ebff", "#a9c0ff", "#7d94d6"] : ["#ffd898", "#ffa347", "#e8702a"]).forEach((col, i) => rim.addColorStop(i / 2, col));
     g.fillStyle = rim; g.beginPath(); g.arc(R, R, R - 1, 0, 7); g.arc(R, R, Rin, 0, 7, true); g.fill();
@@ -918,37 +1301,96 @@ function startHost() {
     g.beginPath(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? s * .48 : s * 1.08; g.lineTo(X + Math.cos(a) * r, Y + Math.sin(a) * r); } g.closePath();
     g.lineJoin = "round"; g.strokeStyle = "#3a2600"; g.lineWidth = 4; g.stroke(); g.fillStyle = "#ffd23f"; g.fill();
   }
+  function layoutMiniSignals(items, R, edge, gap, nearestId) {
+    // Keep the nearest destination exact; bundle other distant signals that
+    // share a bearing, then give each bundle enough room around the rim.
+    const sorted = items.slice().sort((a, b) => (b.s.id === nearestId) - (a.s.id === nearestId) || a.p.d - b.p.d);
+    const groups = [];
+    for (const item of sorted) {
+      const group = item.p.out && item.s.id !== nearestId && groups.find(other => other.p.out && other.s.id !== nearestId && Math.hypot(other.p.X - item.p.X, other.p.Y - item.p.Y) < gap);
+      if (group) { group.count++; continue; }
+      groups.push({ s: item.s, p: { ...item.p }, count: 1 });
+    }
+    const occupied = groups.filter(item => !item.p.out).map(item => item.p);
+    for (const item of groups) if (item.p.out) {
+      const p = item.p; p.anchorX = p.X; p.anchorY = p.Y;
+      if (item.s.id !== nearestId) {
+        const step = gap / Math.max(1, edge), choices = [0];
+        for (let n = 1; n * step <= Math.PI; n++) choices.push(n * step, -n * step);
+        let best = null, clearance = -1;
+        for (const offset of choices) {
+          const angle = p.a + offset, X = R + Math.cos(angle) * edge, Y = R + Math.sin(angle) * edge;
+          const distance = occupied.length ? Math.min(...occupied.map(other => Math.hypot(X - other.X, Y - other.Y))) : gap;
+          if (distance > clearance) { best = { X, Y }; clearance = distance; }
+          if (distance >= gap) break;
+        }
+        if (best) { p.X = best.X; p.Y = best.Y; }
+      }
+      occupied.push(p);
+    }
+    return groups.reverse(); // the nearest signal is drawn last
+  }
+  function miniBoundarySegments(R, S, k, x, y, width, height, wrap) {
+    const lines = [], top = R - y * k, bottom = R + (height - y) * k;
+    if (top > 0 && top < S) lines.push([0, top, S, top, 0, 0, S, top]);
+    if (bottom > 0 && bottom < S) lines.push([0, bottom, S, bottom, 0, bottom, S, S - bottom]);
+    if (!wrap) {
+      const left = R - x * k, right = R + (width - x) * k;
+      if (left > 0 && left < S) lines.push([left, 0, left, S, 0, 0, left, S]);
+      if (right > 0 && right < S) lines.push([right, 0, right, S, right, 0, S - right, S]);
+    }
+    return lines;
+  }
+  function drawMiniBoundary(g, S, R, k) {
+    const lines = miniBoundarySegments(R, S, k, rover.x, rover.y, W.w, W.h, WD.wrap);
+    for (const [x1, y1, x2, y2, x, y, w, h] of lines) {
+      g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+      g.strokeStyle = "rgba(235,240,255,.16)"; g.lineWidth = 1; g.beginPath();
+      for (let n = -S; n < S * 2; n += 11) { g.moveTo(n, 0); g.lineTo(n + S, S); } g.stroke(); g.restore();
+      g.setLineDash([4, 4]); g.lineWidth = 1.5; g.strokeStyle = "rgba(20,26,60,.8)";
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); g.setLineDash([]);
+    }
+  }
   function drawMini() {
     const c = $("mini"), g = c.getContext("2d"), { S, dpr, R, Rin, k } = mini, moon = worldKey === "moon";
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, S, S);
     g.save(); g.beginPath(); g.arc(R, R, Rin, 0, 7); g.clip();
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
     if (mini.ready) { // slide the pre-painted world so the rover sits in the middle; on Mars it repeats east-west
       const t = mini.terrain, lonX = WD.wrap ? ((rover.x % W.w) + W.w) % W.w : rover.x, ox = R - (lonX + mini.mX) * k, oy = R - (rover.y + mini.mY) * k;
-      if (WD.wrap) { const tw = W.w * k; for (let n = -1; n <= 1; n++) if (ox + n * tw < S && ox + (n + 1) * tw > 0) g.drawImage(t, 0, 0, t.width, t.height, ox + n * tw, oy, tw + .6, t.height); }
-      else g.drawImage(t, ox, oy);
+      if (WD.wrap) { const tw = W.w * k; for (let n = -1; n <= 1; n++) if (ox + n * tw < S && ox + (n + 1) * tw > 0) g.drawImage(t, 0, 0, t.width, t.height, ox + n * tw, oy, tw + .6, t.height * k / mini.rasterK); }
+      else g.drawImage(t, ox, oy, t.width * k / mini.rasterK, t.height * k / mini.rasterK);
     } else { g.fillStyle = moon ? "#bac1d4" : "#e28246"; g.fillRect(0, 0, S, S); }
-    const GS = 9.5, edge = Rin - 29; // marker size, and how far out a marker may sit so it is never cut off
+    drawMiniBoundary(g, S, R, k);
+    const GS = Math.min(9.5, Rin * .18), edge = Math.max(1, Rin - GS * 2.2 - 8); // marker size, and how far out a marker may sit so it is never cut off
     const place = s => { const dx = wdx(s.x - rover.x) * k, dy = (s.y - rover.y) * k, d = Math.hypot(dx, dy) || 1, f = Math.min(1, edge / d); return { X: R + dx * f, Y: R + dy * f, d, out: d > edge, a: Math.atan2(dy, dx) }; };
     // science stars: tiny soft sparkles, only when they are well inside the circle
     for (const s of stars) if (!starsGot.has(s.id)) { const p = place(s); if (p.d > Rin - 8) continue; g.fillStyle = "rgba(255,244,170,.95)"; g.strokeStyle = "rgba(120,80,0,.55)"; g.lineWidth = 1;
       g.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, r = i % 2 ? 1.3 : 4; g.lineTo(p.X + Math.cos(a) * r, p.Y + Math.sin(a) * r); } g.closePath(); g.stroke(); g.fill(); }
     // dashed cyan line to the nearest ghost still waiting (or to its icon on the rim)
     const near = nearestUnfound();
+    const signals = layoutMiniSignals(sites.filter(s => !found.has(s.id)).map(s => ({ s, p: place(s) })), R, edge, GS * 2.6, near && near.s.id);
     if (near) { const p = place(near.s); g.setLineDash([7, 5]); g.lineDashOffset = -time * 16; g.lineCap = "round";
       g.strokeStyle = "rgba(12,44,74,.7)"; g.lineWidth = 4.5; g.beginPath(); g.moveTo(R, R); g.lineTo(p.X, p.Y); g.stroke();
       g.strokeStyle = "#7fe6ff"; g.lineWidth = 2.4; g.stroke(); g.setLineDash([]); }
     // found ghosts are gold stars; they shrink away at the edge instead of being cut off
     for (const s of sites) if (found.has(s.id)) { const p = place(s), f = clamp((edge + 10 - p.d) / 10, 0, 1); if (f > 0) miniStar(g, p.X, p.Y, GS * f); }
     // unfound ghosts: inside the circle when in range, otherwise pinned to the rim in their real direction
-    const todo = sites.filter(s => !found.has(s.id)).map(s => [s, place(s)]).sort((a, b) => b[1].d - a[1].d);
-    for (const [s, p] of todo) {
+    for (const { s, p, count } of signals) {
       const pulse = .5 + .5 * Math.sin(time * 3 + s.x * .01);
-      if (p.out) { // small arrowhead on the rim side shows it is farther that way
+      if (p.out) { // leader lines preserve the true bearing when a bundle moves
+        if (Math.hypot(p.X - p.anchorX, p.Y - p.anchorY) > 3) {
+          g.strokeStyle = "rgba(12,44,74,.5)"; g.lineWidth = 1; g.beginPath(); g.moveTo(p.anchorX, p.anchorY); g.lineTo(p.X, p.Y); g.stroke();
+        }
         const ax = Math.cos(p.a), ay = Math.sin(p.a), tx = p.X + ax * (GS * .8 + 7), ty = p.Y + ay * (GS * .8 + 7);
         g.beginPath(); g.moveTo(tx + ax * 5, ty + ay * 5); g.lineTo(tx - ay * 5 - ax * 2, ty + ax * 5 - ay * 2); g.lineTo(tx + ay * 5 - ax * 2, ty - ax * 5 - ay * 2); g.closePath();
         g.lineJoin = "round"; g.strokeStyle = "#0c2c4a"; g.lineWidth = 3; g.stroke(); g.fillStyle = "#7fe6ff"; g.fill();
         miniGhost(g, p.X, p.Y, GS * .8, pulse);
       } else miniGhost(g, p.X, p.Y, GS, pulse);
+      if (count > 1) {
+        g.fillStyle = "#141a3c"; g.beginPath(); g.arc(p.X + 7, p.Y - 8, 7, 0, 7); g.fill();
+        g.font = "700 10px Fredoka, ui-rounded, system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillStyle = "#fff"; g.fillText(String(count), p.X + 7, p.Y - 7.5);
+      }
     }
     // the rover: a chunky white arrow pointing the way it faces, with a soft pulse ring
     const pr = (time * .9) % 1;
@@ -978,7 +1420,9 @@ function startHost() {
   function update(dt) {
     time += dt;
     if (toastT > 0 && (toastT -= dt) <= 0) $("toast").classList.remove("show");
-    if (bookOpen) return;
+    if (bookOpen || mode === "pause") { Sfx.engine(0, false); return; }
+    // A newly loaded world must have its terrain and collision lists before driving.
+    if (!terrain.visible && (mode === "play" || mode === "count")) return;
     if (mode === "play") tickClock(dt);
     if (mode === "count") tickCount(dt); else clearCount(dt);
     if (mode === "revive") tickRevive(dt);
@@ -990,7 +1434,9 @@ function startHost() {
     const top = WD.maxV * (rover.boost > 0 ? 1.55 : 1) * (rover.sand ? .3 : 1);
     if (playing) {
       // pedals are analog: a light squeeze of a trigger drives slowly, a full press drives at full speed
-      const target = inp.g > 0 ? top * inp.g : inp.r > 0 ? -WD.maxV * .45 * inp.r : 0, acc = rover.sand && Math.abs(rover.v) > top ? 700 : target === 0 ? 420 : rover.boost > 0 ? 900 : inp.r > 0 && rover.v > 0 ? 360 + 340 * inp.r : 360;
+      // Brake/reverse takes priority if both pedals are held, as it does on a controller.
+      const target = inp.r > 0 ? -WD.maxV * .45 * inp.r : inp.g > 0 ? top * inp.g : 0;
+      const acc = rover.sand && Math.abs(rover.v) > top ? 700 : inp.r > 0 && rover.v > 0 ? 360 + 340 * inp.r : target === 0 ? 420 : rover.boost > 0 ? 900 : 360;
       rover.v += clamp(target - rover.v, -acc * dt, acc * dt);
     } else rover.v *= Math.pow(.02, dt);
     rover.steer = lerp(rover.steer, inp.s, 1 - Math.exp(-10 * dt));
@@ -1053,8 +1499,11 @@ function startHost() {
     R.flame.visible = rover.boost > 0; if (R.flame.visible) R.flame.scale.set(rnd(.8, 1.2), rnd(.8, 1.4), rnd(.8, 1.2));
 
     // --- dust and tracks ---
-    if (!rover.air && sp > 40) { layTrack(); const n = Math.random() < sp / 140 ? 2 : 1; for (let i = 0; i < n; i++) puff(-13, Math.random() < .5 ? 12.5 : -12.5, 1); }
-    if (rover.boost > 0) for (let i = 0; i < 3; i++) spark.emit(rover.x - c * 26 + rnd(-3, 3), rover.alt + 15 + rnd(-3, 3), rover.y - s * 26 + rnd(-3, 3), -c * rnd(40, 120), rnd(-10, 20), -s * rnd(40, 120), rnd(.25, .5), rnd(6, 11), 1, rnd(.5, .8), .15, .9, 0, 2, -10);
+    if (!rover.air && sp > 40) layTrack();
+    const trailN = emissionCount("trail", !rover.air && sp > 40 ? 60 * (1 + Math.min(1, sp / 140)) : 0, dt);
+    for (let i = 0; i < trailN; i++) puff(-13, Math.random() < .5 ? 12.5 : -12.5, 1);
+    const boostN = emissionCount("boost", rover.boost > 0 ? 180 : 0, dt);
+    for (let i = 0; i < boostN; i++) spark.emit(rover.x - c * 26 + rnd(-3, 3), rover.alt + 15 + rnd(-3, 3), rover.y - s * 26 + rnd(-3, 3), -c * rnd(40, 120), rnd(-10, 20), -s * rnd(40, 120), rnd(.25, .5), rnd(6, 11), 1, rnd(.5, .8), .15, .9, 0, 2, -10);
     function puff(lx, lz, power) {
       const x = rover.x + c * lx - s * lz, z = rover.y + s * lx + c * lz, y = rover.alt + 1.5, dir = Math.sign(rover.v) || 1;
       if (moon) dust.emit(x, y, z, -c * dir * sp * rnd(.1, .3) * power + rnd(-14, 14), rnd(22, 55) * power, -s * dir * sp * rnd(.1, .3) * power + rnd(-14, 14), 3, rnd(2.5, 5), .78, .78, .82, .85, WD.gravity, 0, 0, y - 3);
@@ -1069,18 +1518,30 @@ function startHost() {
       if (!rv) { st.model.position.y = 5 + Math.sin(time * 1.6 + st.x) * 3; st.model.rotation.y += dt * .35; }
       const pulse = (time * .7 + st.x * .01) % 1; st.ring.scale.setScalar(40 + pulse * 70); st.ring.material.opacity = .8 * (1 - pulse);
       st.beam.material.opacity = (.55 + .2 * Math.sin(time * 3 + st.x)) * (moon ? 1 : .75); st.core.material.opacity = moon ? .8 : .55; st.q.position.y = 80 + Math.sin(time * 2.4) * 5;
-      if (d < 1100 && Math.random() < .5) { const a = rnd(0, 6.3), r = rnd(4, 38); spark.emit(st.g.position.x + Math.cos(a) * r, st.h0 + rnd(0, 20), st.y + Math.sin(a) * r, 0, rnd(18, 55), 0, rnd(.8, 1.8), rnd(2.5, 5), .6, .92, 1, 1, 0, 0, -1.5); }
+      for (let i = 0, n = emissionCount("ghost-" + st.id, d < 1100 ? 30 : 0, dt); i < n; i++) { const a = rnd(0, 6.3), r = rnd(4, 38); spark.emit(st.g.position.x + Math.cos(a) * r, st.h0 + rnd(0, 20), st.y + Math.sin(a) * r, 0, rnd(18, 55), 0, rnd(.8, 1.8), rnd(2.5, 5), .6, .92, 1, 1, 0, 0, -1.5); }
       if (playing && d < 100 && !rover.air) startRevive(st);
     }
-    Models.holoFace.opacity = (moon ? .3 : .5) + .1 * Math.sin(time * 9) + (Math.random() < .04 ? .2 : 0);
+    Models.holoFace.opacity = (moon ? .3 : .5) + (.1 * Math.sin(time * 9) + (Math.random() < 1 - Math.pow(.96, dt * 60) ? .2 : 0));
 
     // --- science stars ---
     for (const st of stars) {
-      if (starsGot.has(st.id)) continue;
+      if (starsGot.has(st.id)) {
+        if (st.pickupT === undefined) continue;
+        st.pickupT += dt;
+        const t = clamp(st.pickupT / .48, 0, 1), squash = Math.sin(Math.PI * clamp(t * 2, 0, 1));
+        const fade = 1 - smooth(clamp((t - .35) / .65, 0, 1));
+        st.mesh.scale.set((1 + .45 * squash) * fade, (1 - .3 * squash) * fade, fade);
+        st.g.position.y = st.h0 + 20 + smooth(t) * 24;
+        st.mesh.rotation.z = Math.sin(t * Math.PI) * .28;
+        if (t >= 1) { st.g.visible = false; delete st.pickupT; }
+        continue;
+      }
       st.g.position.set(rx(st.x), st.h0 + 20 + Math.sin(time * 2.5 + st.x) * 3, st.y); st.mesh.rotation.y = time * 2.2;
       if (playing && Math.hypot(wdx(st.x - rover.x), st.y - rover.y) < 36) {
-        starsGot.add(st.id); st.g.visible = false; rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); Pad.rumble("star"); addTime(10); updateHud();
-        for (let i = 0; i < 50; i++) { const a = rnd(0, 6.3), b = rnd(-1, 1.4), v = rnd(40, 140); spark.emit(st.g.position.x, st.g.position.y, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.5, 1.1), rnd(4, 8), 1, .85, .3, 1, 120, 1, -4); }
+        starsGot.add(st.id); st.pickupT = 0;
+        rover.boost = 2.4; toast(st.fact); Sfx.star(); Sfx.boost(); Pad.rumble("star"); addTime(10); updateHud(); saveProgress();
+        if (typeof discoveryFx !== "undefined") discoveryFx.reward("star");
+        for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, v = 38; spark.emit(st.g.position.x, st.g.position.y, st.y, Math.cos(a) * v, 18, Math.sin(a) * v, .35, 3, 1, .9, .4, 1, 25, 1, -1); }
       }
     }
     for (const l of labels) l.sp.position.x = rx(l.x);
@@ -1096,7 +1557,7 @@ function startHost() {
         tip("devil", "Dust devils on Mars are real, and their wind sometimes cleaned dust off rovers' solar panels!");
       }
       d.children.forEach((ch, i) => { ch.rotation.y = time * (3 + i * .4) + u.seed; ch.position.x = Math.sin(time * 1.7 + i * .7 + u.seed) * (2 + i * 2.2); ch.position.z = Math.cos(time * 1.3 + i * .9 + u.seed) * (2 + i * 2.2); });
-      if (Math.random() < .5) { const a = rnd(0, 6.3); dust.emit(u.x + Math.cos(a) * 8, d.position.y + 2, u.z + Math.sin(a) * 8, Math.cos(a + 1.6) * 30, rnd(15, 40), Math.sin(a + 1.6) * 30, 1.6, 8, .9, .64, .44, .3, -4, .8, 10); }
+      for (let i = 0, n = emissionCount("devil-" + u.seed, 30, dt); i < n; i++) { const a = rnd(0, 6.3); dust.emit(u.x + Math.cos(a) * 8, d.position.y + 2, u.z + Math.sin(a) * 8, Math.cos(a + 1.6) * 30, rnd(15, 40), Math.sin(a + 1.6) * 30, 1.6, 8, .9, .64, .44, .3, -4, .8, 10); }
     }
 
     // --- signal: bars, distance, beeps that speed up as you get close ---
@@ -1106,49 +1567,62 @@ function startHost() {
         const bars = n.d < 500 ? 4 : n.d < 1000 ? 3 : n.d < 1800 ? 2 : n.d < 3200 ? 1 : 0;
         const km = Math.round(n.d / WD.ppd * WD.kmPerDeg);
         setSignal(bars, km.toLocaleString() + " km");
-        $("compassLbl").textContent = "Ghost signal · " + sigDist;
+        const targetName = n.s.short || n.s.name;
+        if ($("compassTarget").textContent !== targetName) $("compassTarget").textContent = targetName;
+        if ($("compassLbl").textContent !== sigDist) $("compassLbl").textContent = sigDist;
         $("needle").style.transform = "rotate(" + (Math.atan2(n.s.y - rover.y, wdx(n.s.x - rover.x)) - camH) + "rad)";
         if (bars >= 2 && lastPing !== n.s.id + bars) { lastPing = n.s.id + bars; if (bars === 2) Pad.rumble("signal"); }
         beepT -= dt; if (bars > 0 && beepT <= 0) { beepT = clamp(n.d / 1100, .16, 2.4); Sfx.beep(bars / 4); }
-      } else { setSignal(0, ""); $("compassLbl").textContent = "All found!"; }
+      } else { setSignal(0, ""); $("compassTarget").textContent = "All ghosts found!"; $("compassLbl").textContent = "Open your sticker book"; }
       Sfx.engine(sp / WD.maxV, true);
       const lat = WD.latMax - rover.y / WD.ppd, lon = WD.lonMin + (((rover.x % W.w) + W.w) % W.w) / WD.ppd;
-      $("coordTxt").textContent = `📍 ${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}  ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
+      $("coordTxt").textContent = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}  ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? "E" : "W"}`;
     } else Sfx.engine(0, false);
    
   }
 
-  // waking a ghost: shake, flash, pop into full colour, then show its story
+  // A quiet material transformation, one expanding ring and an earned collection patch.
+  // The original 1.5-second reveal and 3-second task transition stay unchanged.
   function startRevive(st) {
-    mode = "revive"; rover.v = 0; revive = { s: st, t: 0, popped: false, a0: Math.atan2(rover.y - st.y, wdx(rover.x - st.x)) }; found.add(st.id);
-    Sfx.wake();
+    mode = "revive"; rover.v = 0; revive = { s: st, t: 0, popped: false, a0: Math.atan2(rover.y - st.y, wdx(rover.x - st.x)) }; found.add(st.id); pendingSite = st.id; pendingPhase = "task"; saveProgress();
+    discoveryFx.begin(st); Sfx.wake();
   }
   function tickRevive(dt) {
     const r = revive, st = r.s; r.t += dt;
-    if (!r.popped) {
-      const k = r.t / 1.5; st.model.rotation.y += dt * (2 + k * 22); st.model.position.y = 5 + k * 14; st.model.scale.setScalar(1.3 * (1 + Math.sin(r.t * 40) * .04 * k));
-      st.beam.scale.x = st.beam.scale.z = 9 + k * 40; st.core.scale.x = st.core.scale.z = 2.2 + k * 16;
-      for (let i = 0; i < 4; i++) { const a = rnd(0, 6.3), d = rnd(40, 90); spark.emit(st.g.position.x + Math.cos(a) * d, st.h0 + rnd(0, 50), st.y + Math.sin(a) * d, -Math.cos(a) * d * 1.4, rnd(0, 20), -Math.sin(a) * d * 1.4, .7, rnd(3, 6), .6, .92, 1, 1, 0, 0, 0); }
-      if (r.t >= 1.5) {
-        r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; shake = 1; Sfx.found(); Pad.rumble("found");
-        const f = $("flash"); f.style.transition = "none"; f.style.opacity = .85; requestAnimationFrame(() => { f.style.transition = "opacity .6s"; f.style.opacity = 0; });
-        for (let i = 0; i < 160; i++) { const a = rnd(0, 6.3), b = rnd(-.2, 1.6), v = rnd(50, 220); spark.emit(st.g.position.x, st.h0 + 22, st.y, Math.cos(a) * v, b * v, Math.sin(a) * v, rnd(.8, 1.9), rnd(4, 9), 1, rnd(.7, 1), rnd(.2, .6), 1, 110, .8, -3); }
-        updateHud();
-      }
-    } else {
-      const k = clamp((r.t - 1.5) / .7, 0, 1), el = 1 + Math.pow(2, -9 * k) * Math.sin((k * 8 - .75) * 2.1) * -1; // springy pop
-      st.model.scale.setScalar(1.3 * (.35 + .65 * el)); st.model.rotation.y += dt * .6;
-      if (r.t > 3) { st.model.scale.setScalar(1.3); revive = null; startTask(st); }
+    discoveryFx.step(r.t);
+    if (!r.popped && r.t >= 1.5) {
+      r.popped = true; setSiteAlive(st, true); st.model.position.y = 0; st.model.scale.setScalar(1.3);
+      Sfx.found(); Pad.rumble("found"); updateHud(); discoveryFx.collect(st);
     }
+    if (r.t > 3) { discoveryFx.cancel(); st.model.scale.setScalar(1.3); revive = null; startTask(st); }
   }
 
   // ------------------------------------------------------------------
   // camera
   // ------------------------------------------------------------------
   const camPos = new T.Vector3(), camLook = new T.Vector3(), want = new T.Vector3(), look = new T.Vector3(); let camInit = false;
+  function keepCameraOutsideSolids(position) {
+    const ax = rover.x, ay = rover.alt + 20, az = rover.y;
+    const dx = position.x - ax, dy = position.y - ay, dz = position.z - az, a = dx * dx + dz * dz;
+    if (a < 1) return;
+    let stop = 1;
+    for (const o of solids) {
+      if (o.kind !== "mesa" && o.kind !== "boulder") continue;
+      const radius = o.kind === "mesa" ? o.R + 6 : o.r * 1.05 + 6;
+      const ox = ax - o.x, oz = az - o.z, b = 2 * (ox * dx + oz * dz), c = ox * ox + oz * oz - radius * radius;
+      const disc = b * b - 4 * a * c; if (disc < 0) continue;
+      const enter = (-b - Math.sqrt(disc)) / (2 * a), exit = (-b + Math.sqrt(disc)) / (2 * a);
+      if (exit <= 0 || enter >= stop) continue;
+      const t = Math.max(0, enter), top = H(o.x, o.z) + (o.kind === "mesa" ? o.hgt : o.r * 1.5) + 6;
+      if (ay + dy * t > top) continue;
+      stop = Math.min(stop, Math.max(.05, t - .04));
+    }
+    if (stop < 1) { position.x = ax + dx * stop; position.y = ay + dy * stop; position.z = az + dz * stop; }
+  }
   function updateCamera(dt) {
+    if (camInit && (mode === "pause" || bookOpen)) return;
     const y0 = rover.alt; let kPos = 7, fov = 62;
-    const focus = revive ? revive.s : mode === "task" && taskSite ? taskSite : (mode === "card" && cardKind === "site" && card && card.g ? card : null);
+    const focus = revive ? revive.s : mode === "task" && taskSite && taskSite.g ? taskSite : (mode === "card" && cardKind === "site" && card && card.g ? card : null);
     for (const st of sites) st.tag.visible = st.alive && st !== focus;
     if (focus) { // circle the ghost
       const a = (revive ? revive.a0 : 0) + time * .45, fx = focus.g.position.x;
@@ -1166,8 +1640,10 @@ function startHost() {
       look.set(rover.x + Math.cos(rover.h) * 55, y0 + 14, rover.y + Math.sin(rover.h) * 55);
       fov = 62 + sp * 6 + (rover.boost > 0 ? 10 : 0); kPos = 9;
     }
+    if (!focus && mode !== "lobby") keepCameraOutsideSolids(want);
     if (!camInit || camPos.distanceTo(want) > 4000) { camPos.copy(want); camLook.copy(look); camInit = true; }
     camPos.lerp(want, 1 - Math.exp(-kPos * dt)); camLook.lerp(look, 1 - Math.exp(-(kPos + 3) * dt));
+    if (!focus && mode !== "lobby") keepCameraOutsideSolids(camPos);
     camPos.y = Math.max(camPos.y, H(camPos.x, camPos.z) + 10);
     shake = Math.max(0, shake - dt * 2.2);
     camera.position.copy(camPos); if (shake > 0) { camera.position.x += rnd(-1, 1) * shake * 5; camera.position.y += rnd(-1, 1) * shake * 5; }
@@ -1187,12 +1663,50 @@ function startHost() {
       earth.position.copy(earthDir).multiplyScalar(13000).add(p); earthGlow.position.copy(earth.position);
     }
     sun.target.position.set(rover.x, rover.alt, rover.y); sun.position.copy(sunDir).multiplyScalar(500).add(sun.target.position);
+    fill.target.position.copy(sun.target.position);
+    fill.position.set(rover.x - sunDir.x * 400, rover.alt + 180, rover.y - sunDir.z * 400);
     dust.mat.uniforms.uScale.value = spark.mat.uniforms.uScale.value = vh * quality / (2 * Math.tan(camera.fov * Math.PI / 360));
+  }
+
+  function setupGraphicsRecovery() {
+    const overlay = document.createElement("div"); overlay.id = "graphicsRecovery"; overlay.className = "overlay hidden"; overlay.style.zIndex = 50;
+    overlay.innerHTML = '<div class="box" style="max-width:620px;text-align:center"><h2>Graphics paused</h2><p id="graphicsMessage" role="status"></p><div class="actions"><button class="btn go" id="graphicsResume" disabled>Waiting for graphics…</button><button class="btn alt" id="graphicsReload">Reload game</button></div></div>';
+    $("hostView").appendChild(overlay);
+    function changed(canvas, lost, event) {
+      if (lost) {
+        if (event) event.preventDefault(); lostContexts.add(canvas); graphicsBlocked = true;
+        clearHeldInput(); stopReading(); Sfx.engine(0, false); saveProgress();
+        overlay.classList.remove("hidden");
+      } else lostContexts.delete(canvas);
+      $("graphicsResume").disabled = lostContexts.size > 0;
+      $("graphicsResume").textContent = lostContexts.size ? "Waiting for graphics…" : "Return to game ▶";
+      $("graphicsMessage").textContent = lostContexts.size ? "The browser interrupted 3D graphics. The game and timer are stopped. Waiting for recovery; you can also reload to continue from your saved progress." : "Graphics are ready again. Return when you're ready; the timer is still stopped.";
+    }
+    const canvas = renderer.domElement;
+    canvas.addEventListener("webglcontextlost", e => changed(canvas, true, e));
+    canvas.addEventListener("webglcontextrestored", e => changed(canvas, false, e));
+    Models.onContextChange(changed);
+    $("graphicsResume").onclick = () => {
+      if (lostContexts.size) return;
+      clearHeldInput(); clearFocus(); graphicsBlocked = false; overlay.classList.add("hidden");
+    };
+    $("graphicsReload").onclick = () => { saveProgress(); location.reload(); };
   }
 
   // ------------------------------------------------------------------
   // main loop
   // ------------------------------------------------------------------
+  $("pauseBtn").onclick = () => action("pause");
+  setupGraphicsRecovery();
+  GameUI.setup($("hostView"), overlayNow);
+  let driveHintShown = !!store.get("driveHint", "");
+  const hintObserver = new MutationObserver(() => {
+    if (mode !== "play" || driveHintShown) return;
+    driveHintShown = true; store.set("driveHint", "1");
+    toast(ctrlNow === "pad" ? "R2 drives, L2 reverses, and the left stick steers. Follow the glowing beams!" : "Hold ↑ or W to drive; ← → or A D steer. Follow the glowing beams!", "Ready, explorer?", "💡");
+    hintObserver.disconnect();
+  });
+  hintObserver.observe($("count"), { childList: true });
   setWorld("moon"); refreshPrompts();
   if (document.fonts && document.fonts.load) document.fonts.load("700 64px Fredoka").then(() => { if (mode === "lobby") buildWorld(); buildMiniOverlay(); }).catch(() => { });
   window.ghostDebug = { // handy for testing in the browser console
@@ -1202,11 +1716,14 @@ function startHost() {
   let last = performance.now(), slow = 0, frames = 0;
   function frame(now) {
     const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
+    discoveryFx.guard(mode, graphicsBlocked);
+    if (graphicsBlocked) { pollPad(); requestAnimationFrame(frame); return; }
     updateKb(Math.min(.05, raw)); pollPad(); tickCardWait();
     if (Tasks.active() && mode === "task") stepTask(Math.min(.05, raw));
     update(dt);
     if (Math.abs(rover.x - tcx) > 120 || Math.abs(rover.y - tcz) > 120) updateTerrain(Math.round(rover.x / 120) * 120, Math.round(rover.y / 120) * 120);
-    dust.update(dt); spark.update(dt);
+    stepTerrain(); stepMiniTerrain();
+    dust.update(dt); spark.update(dt); updateTracks(dt);
     updateCamera(dt);
     renderer.render(scene, camera);
     if (mode === "card") Models.thumbRender(time * .8);

@@ -2,6 +2,8 @@
 // Apollo 16: John Young test-drove the Moon car, speeding and swerving, while Duke filmed the "Grand Prix".
 Tasks.add("a16", {
   title: "Grand Prix!", hint: "Hold to drive. Weave around the cones!",
+  action: () => "Weave around the cones",
+  status: (s, inp) => inp.hold ? "Driving" : "Hold to drive",
   start(s) { Object.assign(s, { x: 400, d: 0, v: 0, total: 2400, cones: [], lap: 0, py: 440 }); for (let i = 0; i < 12; i++) s.cones.push({ d: 240 + i * 170, x: i % 2 ? 470 : 330, hit: false }); },
   step(s, dt, inp, T) {
     s.v += ((inp.hold ? 250 : 15) - s.v) * 2 * dt; s.d += s.v * dt; s.lap += dt;

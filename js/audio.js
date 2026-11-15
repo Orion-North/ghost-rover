@@ -4,7 +4,7 @@
    There are no audio files, so there is nothing to download or credit.
    ===================================================================== */
 const Sfx = (() => {
-  let ac = null, master, musicBus, sfxBus, eng = null, muted = false, song = null, timer = null, step = 0, nextT = 0;
+  let ac = null, master, musicBus, sfxBus, eng = null, muted = false, narrating = false, song = null, timer = null, step = 0, nextT = 0;
   const hz = m => 440 * Math.pow(2, (m - 69) / 12);
 
   function init() {
@@ -12,7 +12,7 @@ const Sfx = (() => {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     ac = new AC();
     master = ac.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ac.destination);
-    musicBus = ac.createGain(); musicBus.gain.value = .5; musicBus.connect(master);
+    musicBus = ac.createGain(); musicBus.gain.value = narrating ? .1 : .5; musicBus.connect(master);
     sfxBus = ac.createGain(); sfxBus.gain.value = .9; sfxBus.connect(master);
     // engine hum: two oscillators through a low-pass filter
     const o1 = ac.createOscillator(), o2 = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
@@ -57,6 +57,8 @@ const Sfx = (() => {
   function schedule() {
     if (!ac || !song) return;
     const s = SONGS[song], stepDur = 60 / s.bpm / s.div;
+    // A throttled background tab must not schedule minutes of missed notes at once.
+    if (nextT < ac.currentTime - .25) nextT = ac.currentTime;
     while (nextT < ac.currentTime + .25) {
       const i = step % 32, ch = s.chords[Math.floor(i / 8)], k = i % 8, o = { at: nextT, bus: musicBus };
       if (k === 0 || k === 4 || (s.kick && k === 6)) tone(hz(ch[0]), stepDur * 1.8, Object.assign({ type: "triangle", vol: s.bassVol }, o));
@@ -72,6 +74,7 @@ const Sfx = (() => {
     init,
     get muted() { return muted; },
     setMuted(m) { muted = m; if (master) master.gain.value = m ? 0 : 1; },
+    narration(on) { narrating = !!on; if (musicBus) musicBus.gain.setTargetAtTime(narrating ? .1 : .5, ac.currentTime, .12); },
     music(name) { if (song === name) return; song = name; if (!name) clearInterval(timer); else startMusic(); },
     engine(speed, on) { // speed 0..1.5
       if (!eng) return; const t = ac.currentTime;

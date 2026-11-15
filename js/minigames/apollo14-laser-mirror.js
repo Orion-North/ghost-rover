@@ -1,7 +1,10 @@
 /* Ghost Rovers mission task. See js/minigames/core.js for how tasks work. */
 // Apollo 14 science station: a laser mirror that scientists on Earth still bounce lasers off.
 Tasks.add("a14s", {
+  steerOnly: true,
   title: "Aim the laser mirror!", hint: "Steer to tilt the mirror toward Earth.",
+  action: () => "Aim toward Earth",
+  status: s => s.on ? "Signal locked — keep it steady" : "Steer to align the mirror",
   start(s) { Object.assign(s, { mx: 540, my: 300, ex: 230, ey: 70, py: 440, lock: 0 }); s.need = Math.atan2(s.ey - s.my, s.ex - s.mx) + Math.PI / 2; },
   step(s, dt, inp, T) {
     s.a = (inp.px - 400) / 400 * 1.3; s.on = Math.abs(s.a - s.need) < .12 + T.assist * .3;
@@ -18,6 +21,6 @@ Tasks.add("a14s", {
     T.line(g, s.mx, s.my + 10, s.mx - 18, 344, 4, T.C.silver); T.line(g, s.mx, s.my + 10, s.mx + 18, 344, 4, T.C.silver);
     g.save(); g.translate(s.mx, s.my); g.rotate(s.a); T.box(g, -50, -8, 100, 16, 4, T.C.silver, 3.5);
     for (let i = 0; i < 6; i++) T.circ(g, -40 + i * 16, 0, 5, s.on ? "#bfffcf" : "#e8f0ff", 1.5); g.restore();
-    T.bar(g, 300, 400, 200, 20, s.lock, T.C.go); if (s.on) T.text(g, "Bounced home! A round trip takes about 2.5 seconds", 400, 380, 18, "#bfffcf");
+    T.bar(g, 300, 410, 200, 20, s.lock, T.C.go, "SIGNAL LOCK"); if (s.on) T.text(g, "Bounced home! A round trip takes about 2.5 seconds", 400, 365, 18, "#bfffcf");
   }
 });

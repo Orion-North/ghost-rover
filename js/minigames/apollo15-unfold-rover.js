@@ -2,6 +2,7 @@
 // Apollo 15: the Moon car travelled folded up on the lander's side, and the crew unfolded it.
 Tasks.add("a15", {
   title: "Unfold the rover!", hint: "Hold on each glowing spot: lower it, flip out the wheels, click in the seats.",
+  actions: ["Lower the rover · 1 of 4", "Unfold the first wheels · 2 of 4", "Unfold the other wheels · 3 of 4", "Click in the seats · 4 of 4"],
   start(s) { s.xs = [250, 387, 561, 470]; s.ys = [150, 335, 335, 280]; s.py = 150; },
   step(s, dt, inp, T) { T.seq(s, s.xs, [2.2, 1.6, 1.6, 1.6], dt, 48); s.py = s.ys[Math.min(s.k || 0, 3)]; },
   draw(s, g, T) {

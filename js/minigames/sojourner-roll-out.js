@@ -2,6 +2,7 @@
 // Sojourner: the Pathfinder lander bounced down on airbags, opened up, and the rover drove down a ramp.
 Tasks.add("soj", {
   title: "Roll out!", hint: "Hold on each glowing spot: shrink the airbags, lower the ramp, drive down.", world: "mars",
+  actions: ["Shrink the airbags · 1 of 3", "Lower the ramp · 2 of 3", "Drive down the ramp · 3 of 3"],
   start(s) { s.xs = [400, 575, 690]; s.ys = [260, 320, 345]; s.py = 260; },
   step(s, dt, inp, T) { T.seq(s, s.xs, [2.4, 1.8, 3.2], dt, 50); s.py = s.ys[Math.min(s.k || 0, 2)]; },
   draw(s, g, T) {

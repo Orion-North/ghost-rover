@@ -2,6 +2,8 @@
 // Spirit: one wheel broke, so the team drove Spirit backward, dragging it. The wheel scraped up bright white soil.
 Tasks.add("spi", {
   title: "Drive with a broken wheel!", hint: "Hold to drive. Steering is back-to-front and wobbly!", world: "mars",
+  action: () => "Reach the flag driving backward",
+  status: (s, inp) => inp.hold ? "Driving — steering is reversed" : "Hold to drive backward",
   start(s) { Object.assign(s, { x: 130, y: 340, h: -.5, fx: 660, fy: 110, trail: [], py: 440 }); s.d0 = Math.hypot(s.fx - s.x, s.fy - s.y); },
   step(s, dt, inp, T) {
     const wob = Math.sin(T.time * 2.6) * .45 * (1 - T.assist * .8), st = T.clamp(-(inp.px - 400) / 300, -1, 1); // reversed!

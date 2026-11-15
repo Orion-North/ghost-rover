@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Ghost Rovers</title>
 <style>
@@ -16,6 +16,7 @@
 html,body{margin:0;height:100%;background:#05070d;color:var(--ink);font-weight:500;
   font-family:Fredoka,ui-rounded,"SF Pro Rounded","Arial Rounded MT Bold",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
 button{font:inherit;color:inherit;cursor:pointer}
+.errorbox{max-width:560px;text-align:center}.errorbox h1{font-size:32px;margin:0 0 12px}.errorbox p{color:var(--dim);line-height:1.5}
 .hidden{display:none!important}
 b,h1,h2,h3{font-weight:700}
 
@@ -31,6 +32,7 @@ b,h1,h2,h3{font-weight:700}
 
 /* ---------- HOST (laptop) ---------- */
 #game,#fx{position:fixed;inset:0;width:100%;height:100%;display:block}
+#game:focus{outline:none}
 #fx{pointer-events:none;z-index:30}
 .chip{background:rgba(20,26,60,.82);border:3px solid rgba(255,255,255,.9);border-radius:999px;padding:7px 16px;font-size:20px;font-weight:700;
   box-shadow:0 5px 0 rgba(0,0,0,.25);white-space:nowrap}
@@ -47,13 +49,13 @@ b,h1,h2,h3{font-weight:700}
 #needle::before{content:"";position:absolute;left:50%;top:7px;margin-left:-13px;border:13px solid transparent;border-top:0;border-bottom:30px solid var(--ghost);filter:drop-shadow(0 0 6px var(--ghost))}
 #compass .lbl{margin-top:6px;font-size:17px;font-weight:700;text-shadow:0 2px 0 rgba(0,0,0,.6),0 0 8px rgba(0,0,0,.6)}
 #coords{position:fixed;left:16px;bottom:14px;z-index:5;font-size:16px}
-#coords small{display:block;font-weight:500;font-size:12px;color:var(--dim);margin-top:1px}
 #mini{position:fixed;right:20px;bottom:20px;z-index:5;border-radius:50%;box-shadow:0 0 16px 3px var(--glow,#9db8ff),0 12px 26px rgba(0,0,0,.6)}
 #toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,160%);z-index:12;max-width:min(640px,calc(100vw - 790px));min-width:300px;background:#fff;color:#22264d;border-radius:24px;
   padding:14px 22px 14px 18px;font-size:21px;line-height:1.3;display:flex;gap:14px;align-items:center;border:4px solid var(--gold);box-shadow:0 8px 0 rgba(0,0,0,.25);transition:transform .45s cubic-bezier(.2,1.5,.4,1)}
 #toast.show{transform:translate(-50%,0)}
 #toast.top{bottom:auto;top:16px;transform:translate(-50%,-160%)} #toast.top.show{transform:translate(-50%,0)} /* over a card or menu: keep its buttons clear */
-#toast .ico{font-size:40px;line-height:1}
+#toast .ico{font-size:40px;line-height:1;color:var(--gold)}
+#toast .ico .game-icon{width:1em;height:1em}
 #toast b{display:block;font-size:13px;letter-spacing:1.5px;color:#c98a00;text-transform:uppercase}
 #count{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:8;pointer-events:none;font-size:min(34vh,300px);font-weight:700;
   color:var(--gold);-webkit-text-stroke:10px #141a3c;paint-order:stroke fill;text-shadow:0 14px 0 rgba(0,0,0,.35)}
@@ -75,7 +77,7 @@ b,h1,h2,h3{font-weight:700}
 .lrow{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px}
 .lrow .btn{font-size:17px;padding:10px 18px} #lobby .lrow .go{font-size:21px;padding:11px 24px}
 .waylab{text-align:center;margin:16px 0 8px}
-.ways{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.ways{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .way{background:rgba(0,0,0,.25);border:4px solid rgba(255,255,255,.18);border-radius:26px;padding:10px 16px;height:150px;display:flex;align-items:center;justify-content:center;gap:16px;transition:border-color .2s,transform .2s,box-shadow .2s}
 .way.on{border-color:var(--gold);box-shadow:0 0 0 4px rgba(255,210,63,.25);transform:translateY(-3px)}
 .way .wico{font-size:52px;line-height:1}
@@ -113,12 +115,6 @@ b,h1,h2,h3{font-weight:700}
 .ps.x{color:#7db4ff}.ps.o{color:#ff6b7a}.ps.t{color:#4fe0b0}.ps.s{color:#ff8fd8}
 .padchip{display:flex;align-items:center;justify-content:center;border-color:var(--go)}
 .padfocus{outline:5px solid var(--gold)!important;outline-offset:4px;transform:scale(1.06)}
-.phone{background:rgba(0,0,0,.25);border-radius:26px;padding:18px;text-align:center}
-.phone h3{margin:0 0 4px;font-size:22px}
-.phone p{margin:0 0 12px;color:var(--dim);font-size:15px;line-height:1.3}
-#qr{background:#fff;border-radius:14px;padding:6px;display:flex;align-items:center;justify-content:center;width:126px;height:126px;flex:none;color:#333;font-size:12px;text-align:center}
-#qr svg{width:100%;height:100%;display:block}
-.warn{background:#5a3a08;border:2px solid #ffb84a;color:#ffe2ae;border-radius:14px;padding:10px 12px;font-size:14px;margin-top:14px}
 
 /* story card */
 #card .box{display:grid;grid-template-columns:250px 1fr;gap:28px;max-width:1080px}
@@ -132,7 +128,7 @@ b,h1,h2,h3{font-weight:700}
 #card h2{font-size:44px;margin:8px 0 2px;line-height:1.02}
 #card .where{color:var(--dim);font-size:17px;margin-bottom:12px}
 #cardWow{background:var(--gold);color:#3a2600;border-radius:22px;padding:12px 18px;font-size:28px;font-weight:700;line-height:1.15;margin-bottom:14px;box-shadow:0 6px 0 #b98a00;display:flex;gap:12px;align-items:center}
-#cardWow::before{content:"⭐";font-size:34px}
+#cardWow::before{content:none}#cardWow>.game-icon{width:30px;height:30px;flex:none}#cardWow>.icon-label{flex:1}
 #card .story{font-size:21px;line-height:1.45;margin:0 0 14px}
 #card .facts{display:grid;gap:10px}
 #card .fact{border-radius:20px;padding:11px 16px;font-size:18px;line-height:1.4;border:3px solid;background:rgba(0,0,0,.22)}
@@ -152,9 +148,10 @@ b,h1,h2,h3{font-weight:700}
 
 /* mission tasks */
 #task{z-index:11;background:rgba(10,12,34,.6)}
-.taskbox{max-width:min(900px,calc((100vh - 250px) * 1.78 + 50px));padding:16px 22px}
+.taskbox{max-width:min(900px,calc((100vh - 300px) * 1.78 + 50px));padding:16px 22px}
 .taskhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-.taskhead .kicker{display:inline-block;background:var(--orange);color:#3a1a00;border-radius:999px;padding:3px 14px;font-weight:700;letter-spacing:1px;font-size:14px;text-transform:uppercase}
+.taskhead #taskSkip{flex:none;white-space:nowrap;align-self:flex-start}
+.taskhead .kicker{display:inline-flex;align-items:center;gap:6px;background:var(--orange);color:#3a1a00;border-radius:999px;padding:3px 14px;font-weight:700;letter-spacing:1px;font-size:14px;text-transform:uppercase}
 .taskhead h2{font-size:38px;margin:6px 0 0;line-height:1}
 .taskhead p{margin:4px 0 0;color:var(--dim);font-size:18px}
 .taskstage{position:relative;margin-top:12px;border:5px solid #fff;border-radius:24px;overflow:hidden;background:#000}
@@ -179,59 +176,191 @@ b,h1,h2,h3{font-weight:700}
 .repStats{display:flex;gap:18px;justify-content:center}
 .repStats div{background:rgba(0,0,0,.25);border-radius:22px;padding:14px 26px;min-width:170px}
 .repStats span{font-size:34px;display:block} .repStats b{font-size:36px;color:var(--gold);display:block;line-height:1.1} .repStats small{color:var(--dim);font-size:15px}
-@media (prefers-reduced-motion:reduce){#hudTime.low,#cardNext.pop{animation:none}}
 
 /* sticker book */
+.comfort-settings{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}
+.comfort-settings button{font-size:14px;padding:8px 12px}
 #book .box{max-width:1000px}
 #book h2{font-size:40px;margin:0 0 4px} #book h2 span{color:var(--gold)}
 #book h3{margin:18px 0 10px;font-size:20px;color:var(--ghost);letter-spacing:1px;text-transform:uppercase}
 .stickers{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:14px}
 .stk{background:#fff;color:#22264d;border-radius:22px;padding:10px 8px 8px;text-align:center;font-weight:700;font-size:14px;line-height:1.15;transform:rotate(var(--r,0deg));box-shadow:0 5px 0 rgba(0,0,0,.3)}
+.stk:focus-visible{outline:4px solid var(--gold);outline-offset:4px}
+button.stk{border:0;font:inherit;font-size:14px}
 .stk img{width:100%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#59d8ff,#3c4ab8);display:block;margin-bottom:6px}
 .stk.no{background:rgba(255,255,255,.08);color:var(--dim);box-shadow:none;border:3px dashed rgba(255,255,255,.3)}
 .stk.no img{filter:brightness(0) invert(.35);background:none}
+.sticker-placeholder{display:grid;place-items:center;aspect-ratio:1;margin-bottom:6px;border-radius:50%;background:rgba(255,255,255,.04);font-size:42px;color:var(--dim)}
 #bookFacts{margin:0;padding:0;list-style:none;display:grid;gap:8px;font-size:17px;line-height:1.35}
 #bookFacts li{background:rgba(0,0,0,.22);border-radius:14px;padding:8px 14px}
 #bookFacts li::before{content:"⭐ "}
 #bookFacts li.no{color:var(--dim);font-style:italic}
 #bookFacts li.no::before{content:"☆ "}
 
+/* Mission emblems share the same outline as the rover and collectible art. */
+.game-icon{display:inline-block;width:1.45em;height:1.45em;vertical-align:middle;flex:none;overflow:visible}
+.game-icon .icon-ink{fill:none}.game-icon .icon-cutout{fill:#fff;fill-opacity:.78}
+[data-icon]{display:inline-flex;align-items:center;justify-content:center;gap:.5em}
+[data-icon].btn{display:inline-flex}.icon-label{vertical-align:middle}
+h2 [data-icon]{color:var(--gold)}
+.metric{display:flex;align-items:center;gap:9px;min-height:58px;padding:7px 14px}
+.metric .game-icon{width:31px;height:31px}.metric-text{display:flex;flex-direction:column;gap:1px}
+.metric b{font-size:25px;line-height:1.05;color:#fff}.metric-label{font-size:11px;line-height:1.2;letter-spacing:.3px;color:var(--dim)}
+.discoveries{border-color:var(--ghost);background:rgba(16,43,74,.94);color:var(--ghost)}
+.science{color:var(--gold);border-color:rgba(255,255,255,.28);background:rgba(20,26,60,.72)}
+.science b{font-size:21px}.science .game-icon{width:25px;height:25px}
+#hudTime{order:-2;color:var(--gold);background:rgba(31,30,56,.94)}
+#hud .discoveries{order:-1}.world-chip{display:flex;align-items:center;gap:7px;font-size:15px;border-color:rgba(255,255,255,.25);color:#d1dcff;align-self:center}
+.world-chip .game-icon{width:24px;height:24px}#hudWorld[data-icon="mars"]{color:#ffab77}
+#hudR .hbtn{display:inline-grid;place-items:center;background:rgba(20,26,60,.72);border-color:rgba(255,255,255,.35);border-width:2px;color:#c9d5ff;box-shadow:0 3px 0 rgba(0,0,0,.2)}
+#hudR .hbtn:hover,#hudR .hbtn:focus-visible{color:#fff;border-color:#fff;background:#303e88}
+#hudR .hbtn .game-icon{width:24px;height:24px}#hudR #bookBtn{color:var(--gold)}
+#hudR #muteBtn[aria-pressed="false"]{color:#9aa6d2}#signal{font-size:13px;border-color:rgba(255,255,255,.3);padding:8px 12px;color:#c9d5ff}
+.repStats [data-icon]{color:var(--gold);margin-bottom:6px}.repStats [data-icon] .game-icon{width:38px;height:38px}
+#book h2>[data-icon]{color:var(--gold)}#book h2{font-size:34px}.book-intro{color:var(--dim);margin:8px 0 22px;font-size:17px;max-width:650px;line-height:1.4}
+#book h3{display:flex;align-items:center;gap:10px;margin:26px 0 14px;color:#e7edff;font-size:17px}
+#book h3 .game-icon{color:var(--patch-color,var(--ghost));width:28px;height:28px}
+.stickers{gap:20px 16px;padding:4px 4px 10px}
+.stk{--patch-color:#8edcff;--patch-sky:#213e80;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;min-width:0;padding:13px 10px 12px;border-radius:28px 28px 35px 35px;border:3px solid var(--patch-color);background:#f4f1e5;color:#17233f;box-shadow:0 5px 0 #080e24,0 0 0 3px #141a3c;transform:rotate(var(--r,0deg));transition:transform .15s,box-shadow .15s}
+button.stk{border:3px solid var(--patch-color);font-weight:700;line-height:1.25}
+button.stk:hover{transform:translateY(-4px) rotate(0);box-shadow:0 9px 0 #080e24,0 0 0 3px var(--patch-color)}
+.stk[data-planet="mars"]{--patch-color:#ffb076;--patch-sky:#8c3d32}
+.stk[data-planet="deep"]{--patch-color:#c4a5ff;--patch-sky:#483273}
+.stk img{margin:0;border:3px solid #141a3c;box-shadow:0 0 0 2px var(--patch-color);background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.25) 0 2%,transparent 2.5%),radial-gradient(circle at 72% 64%,rgba(255,255,255,.15) 0 2%,transparent 2.5%),radial-gradient(circle,var(--patch-sky),#121d41);border-radius:50%;width:100%;aspect-ratio:1}
+.patch-name{display:block;flex:1;font-size:14px}.patch-status{display:flex;align-items:center;justify-content:center;gap:4px;font-size:11px;letter-spacing:0;padding:5px 7px;border-radius:999px;background:#dce4e8;color:#31415b;font-weight:700;line-height:1.15}
+.patch-status .game-icon{width:13px;height:13px}.patch-status.complete{background:#d6f3d2;color:#17633b}.patch-status.ready{background:#fff0c3;color:#76510c}
+.patch-seal{position:absolute;right:1px;top:2px;display:grid;place-items:center;width:29px;height:29px;background:#3ddc6f;color:#fff;border:3px solid #141a3c;border-radius:50%;transform:rotate(9deg)}
+.patch-seal .game-icon{width:19px;height:19px;stroke:#053214}
+.stk.no{color:#b0bddb;background:rgba(255,255,255,.035);border:2px dashed rgba(174,191,227,.35);box-shadow:none}
+button.stk.no{border:2px dashed var(--patch-color);background:rgba(255,255,255,.07);color:#edf3ff}
+.stk.no .patch-status{background:rgba(255,255,255,.08);color:#b9c8e3}
+button.stk.no .patch-status.ready{background:#fff0c3;color:#76510c}
+.sticker-placeholder{width:100%;margin:0;border:2px dashed rgba(174,191,227,.25);color:rgba(174,191,227,.7);background:rgba(255,255,255,.025)}
+#bookFacts li{display:flex;align-items:flex-start;gap:10px}#bookFacts li::before{content:none}#bookFacts li .game-icon{width:20px;height:20px;color:var(--gold);margin-top:1px}#bookFacts li.no .game-icon{color:#8590ba}
+@media (max-width:1000px){
+  .metric{min-height:40px;gap:6px}.metric .metric-label{display:none}.metric b,.science b{font-size:inherit}
+  .metric .game-icon{width:23px;height:23px}.world-chip .game-icon{width:19px;height:19px}
+  #hudTime .metric-text{max-width:110px}#hudTime b{font-size:inherit}
+}
+@media (max-width:480px){
+  .metric{min-height:31px;gap:4px}.metric .game-icon{width:18px;height:18px}.world-chip{gap:4px}.world-chip .game-icon{width:15px;height:15px}
+  .world-chip .icon-label{font-size:11px}#book h2{font-size:26px}.book-intro{font-size:15px}.stk{padding:11px 8px}.patch-name{font-size:13px}.patch-status{font-size:11px}
+}
+@keyframes science-pop{0%{transform:scale(1)}40%{transform:scale(1.08)}100%{transform:scale(1)}}
+.science.pickup{animation:science-pop .45s ease-out;outline:3px solid var(--gold);outline-offset:3px}
 @media (max-width:900px){
-  #lobby .box,#card .box,.ltop,.ways{grid-template-columns:1fr}
+  #lobby .box,.ltop,.ways{grid-template-columns:1fr}
+  #card .box{grid-template-columns:190px minmax(0,1fr);gap:20px}
+  #cardArt{width:180px;height:180px}
   .logo{font-size:52px}
 }
 @media (max-height:760px){
   .logo{font-size:58px} #card h2{font-size:34px} #cardWow{font-size:23px} #card .story{font-size:18px} #card .fact{font-size:16px}
   #cardArt{width:190px;height:190px} .box{padding:20px 26px}
 }
-@media (prefers-reduced-motion:reduce){ .ribbon,#wheel.near{animation:none} }
+/* Keep driving instruments separate at compact desktop sizes and browser zoom. */
+@media (max-width:1000px){
+  #hud{left:10px;top:10px;max-width:calc(100vw - 20px);gap:6px}
+  #hud .chip{font-size:16px;padding:6px 10px} #hud #hudTime{font-size:20px;padding:4px 12px}
+  #hudR{right:10px;top:62px;gap:6px} .hbtn{width:40px;height:40px;font-size:19px}
+  #signal{font-size:0;padding:6px 9px} #signal .bars{margin-left:0;height:19px}
+  #compass{left:10px;top:62px;transform:none;text-align:left;display:flex;align-items:center;gap:9px;max-width:calc(100vw - 230px)}
+  #compass .dial{width:52px;height:52px;flex:none;margin:0}
+  #needle::before{top:5px;border-width:9px;border-top:0;border-bottom-width:24px;margin-left:-9px}
+  #compass .lbl{font-size:14px;margin:0;max-width:220px;line-height:1.3}
+  #toast{font-size:17px;padding:10px 14px;gap:10px;min-width:0;width:min(440px,calc(100vw - 24px));max-width:none}
+  #toast .ico{font-size:28px} #toast b{font-size:11px}
+}
+@media (max-width:720px){
+  .overlay{padding:12px} .box{max-height:calc(100dvh - 24px);padding:18px;border-radius:24px}
+  #lobby .lobbybox{padding:20px} .ltop{gap:18px}.ltop>div{min-width:0}
+  .pick{font-size:18px;gap:6px;padding:10px 6px;min-width:0}.planet{width:38px;height:38px}
+  #card .box{gap:18px;grid-template-columns:minmax(0,1fr)} #card h2{overflow-wrap:anywhere}
+  #card .art{flex-direction:row;flex-wrap:wrap;justify-content:center;gap:10px}#cardArt{width:110px;height:110px}
+  #card .tag{max-width:210px;font-size:12px}#card .ribbon{font-size:13px}
+  #toast:not(.top){left:12px;bottom:76px;width:calc(100vw - min(340px,44vh,29vw) - 52px);transform:translate(0,250%)}
+  #toast.show:not(.top){transform:translate(0,0)}
+  #coords{left:10px;bottom:10px;font-size:13px;max-width:calc(100vw - min(340px,44vh,29vw) - 42px);white-space:normal;padding:6px 10px}
+  #mini{right:12px;bottom:12px}
+  .taskbox{max-width:min(900px,calc(100vw - 24px));padding:14px}.taskhead h2{font-size:28px}.taskhead p{font-size:15px}
+  .taskhead{gap:10px}.taskhead .btn{font-size:15px;padding:10px 12px}.taskhead .hint{font-size:12px}
+  #taskStamp{font-size:clamp(16px,4vw,32px);padding:10px 14px;white-space:normal;text-align:center;width:max-content;max-width:90%}
+  .repStats{gap:10px;flex-wrap:wrap}.repStats div{min-width:120px;padding:12px 18px}
+}
+@media (max-width:480px){
+  #hud{left:8px;top:8px;gap:4px;max-width:calc(100vw - 16px)}
+  #hud .chip{font-size:13px;padding:5px 7px;border-width:2px} #hud #hudTime{font-size:16px;padding:3px 8px}
+  #hudR{top:52px;right:8px;gap:5px} #hudR #signal{display:none}.hbtn{width:35px;height:35px;border-width:2px;font-size:17px}
+  #compass{left:8px;top:52px;gap:6px;max-width:calc(100vw - 135px)}
+  #compass .dial{width:40px;height:40px;border-width:3px} #compass .lbl{font-size:12px}
+  #needle::before{top:4px;border-width:7px;border-top:0;border-bottom-width:19px;margin-left:-7px}
+  #toast:not(.top){top:108px;bottom:auto;left:12px;width:calc(100vw - 24px);transform:translate(0,-300%);font-size:15px}
+  #toast.show:not(.top){transform:translate(0,0)}
+  #coords{font-size:11px}
+  .ltop .logo{font-size:46px}.ltop .sub{font-size:16px}.picks{gap:9px}.pick{font-size:16px}.planet{width:30px;height:30px}
+  .pick small{font-size:11px}.sw{width:34px;height:34px}.swatches{gap:9px}
+  #card .story{font-size:17px}#card .fact{font-size:15px}#cardWow{font-size:21px;padding:10px 12px}
+  #card .actions{gap:12px}.actions .btn{font-size:16px;padding:10px 14px}
+  .stickers{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stk{overflow-wrap:anywhere}
+  .taskhead{flex-wrap:wrap}.taskhead>div{flex:1;min-width:170px}
+}
+
+.paint-picker{display:flex;align-items:center;gap:12px}.paint-picker .swatches{flex:1}.paint-preview{margin:0;flex:none;text-align:center;width:92px}.paint-preview img{display:block;width:92px;height:92px;object-fit:contain;background:radial-gradient(circle,#3f5086,#151d43);border-radius:22px;border:2px solid #6475ad}.paint-preview figcaption{font-size:12px;color:var(--dim);margin-top:3px}
+/* Fixed instrument groups and readable mission controls. */
+#hud{display:grid;grid-template-columns:max-content max-content;grid-template-areas:"timer world" "discoveries science";align-items:center;gap:8px;max-width:44vw}
+#hudTime{grid-area:timer;justify-self:start}#hudWorld{grid-area:world;justify-self:start}
+#hud .discoveries{grid-area:discoveries}#hud .science{grid-area:science}
+#hudTime.free-explore{min-height:38px;padding:6px 12px;border:2px solid rgba(255,255,255,.3);background:rgba(20,26,60,.72);color:#c9d5ff}
+#hudTime.free-explore b{font-size:16px}#hudTime.free-explore .game-icon{width:20px;height:20px}#hudTime.free-explore .metric-label{display:none}
+#compass{display:flex;align-items:center;gap:10px;width:max-content;max-width:260px;text-align:left}
+#compass .dial{width:62px;height:62px;flex:none;margin:0}#compass .nav-copy{min-width:0;max-width:180px}
+#compass .lbl{margin:0;font-size:13px;line-height:1.25}#compassTarget{display:block;font-size:15px;margin-bottom:3px}#compassLbl{display:block}
+#compass #signal{font-size:11px;padding:0;border:0;margin-top:4px;color:#e6edff;text-shadow:0 2px 2px #141a3c}
+#signal .bars{height:14px;gap:3px;margin-left:6px;vertical-align:-1px}#signal .bars i{width:4px}
+#intro b[data-icon]{display:flex;align-items:center;justify-content:center;gap:12px}#intro b .game-icon{width:45px;height:45px;color:var(--gold)}
+#book .box{padding:0;position:relative;scroll-padding-top:170px}
+.book-header{position:sticky;top:0;z-index:3;padding:20px 26px 14px;background:linear-gradient(180deg,#232c66,#202859);border-bottom:2px solid #516092;box-shadow:0 5px 12px #10172d44}
+.book-title-row{display:flex;align-items:center;justify-content:space-between;gap:16px}#book .book-title-row h2{font-size:30px}.book-title-row .btn{font-size:16px;padding:9px 14px;flex:none}
+#book .book-intro{font-size:15px;margin:8px 0 12px}.book-pages{padding:0 26px 24px}
+#bookNav{display:flex;gap:8px;flex-wrap:wrap}.book-jump{display:flex;align-items:center;gap:7px;border:2px solid #6675a8;border-radius:999px;background:#141d45;color:#edf3ff;padding:6px 10px;font-size:14px;font-weight:700}
+.book-jump .game-icon{width:20px;height:20px;color:var(--gold)}.book-jump .section-count{font-size:12px;color:#c8d6ff;font-variant-numeric:tabular-nums}
+.book-jump:hover,.book-jump[aria-current="location"]{border-color:var(--gold);background:#354075}.book-jump:focus-visible{outline:3px solid #fff;outline-offset:2px}
+#book h3{justify-content:flex-start}#book h3 .section-count{font-size:14px;letter-spacing:0;color:var(--dim);margin-left:auto}
+#card .fact{border-width:0 0 0 3px;border-radius:0 12px 12px 0;background:rgba(0,0,0,.14)}#card .f1{border-color:#43869e}#card .f2{border-color:#8b557c}#card .f3{border-color:#3f896a}
+#card .art{position:sticky;top:0;align-self:start}#card .story{max-width:60ch}#card .fact b[data-icon]{display:flex;align-items:center;gap:7px;letter-spacing:.5px}#card .fact b .game-icon{width:19px;height:19px}
+#card .actions{grid-column:1/-1;position:sticky;bottom:-20px;z-index:3;margin:0 -4px -4px;padding:14px 4px 8px;background:linear-gradient(180deg,#1b2357f2,#141a3c 30%);border-top:2px solid #4a5688;gap:12px}
+#card .actions .btn{font-size:17px;padding:11px 16px}#card .actions .hint{flex-basis:100%;font-size:13px;margin-top:0}
+@media(max-width:1000px){#hud{display:flex;flex-wrap:nowrap;gap:6px;max-width:calc(100vw - 20px)}#hudTime{order:0}#hud .discoveries{order:1}#hud .science{order:2}#hudWorld{order:3}#compass{max-width:calc(100vw - 180px)}#compass .nav-copy{max-width:230px}#compassTarget{font-size:14px}#compass .lbl{max-width:none}#hudTime.free-explore b{font-size:15px}}
+@media(max-width:720px){.book-header{padding:15px 18px 12px}.book-pages{padding:0 18px 20px}#book .book-title-row h2{font-size:25px}.book-title-row{gap:10px;flex-wrap:wrap}.book-title-row .btn{font-size:14px}#bookNav{gap:6px}.book-jump{font-size:12px;padding:5px 8px}.book-jump .section-count{font-size:11px}#card .art{position:static}#card .actions{bottom:-18px}}
+@media(max-width:480px){#hud{flex-wrap:wrap}#hudTime.free-explore b{font-size:13px}#compass .nav-copy{max-width:calc(100vw - 188px)}#compassTarget{font-size:12px}#compass .lbl{font-size:11px}#compass #signal{display:block;font-size:10px}#compass .dial{width:40px;height:40px}#card .actions .btn{font-size:15px;padding:9px 12px}}
 </style>
 </head>
 <body>
+<noscript><p style="padding:24px">Ghost Rovers needs JavaScript to play. Enable it in your browser and refresh this page.</p></noscript>
 
 <!-- ===================== HOST VIEW (laptop) ===================== -->
 <div id="hostView" class="hidden">
-  <canvas id="game"></canvas>
-  <canvas id="fx"></canvas>
-  <div id="flash"></div>
+  <canvas id="game" tabindex="-1" aria-label="Rover exploration. Use arrow keys or WASD to drive. Tab selects game controls."></canvas>
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <div id="flash" aria-hidden="true"></div>
 
   <div id="hud" class="hidden">
-    <div class="chip" id="hudWorld">Moon</div>
-    <div class="chip">👻 <b id="hudFound">0/0</b></div>
-    <div class="chip">⭐ <b id="hudStars">0/0</b></div>
-    <div class="chip hidden" id="hudTime">⏱ <b id="timeTxt">0:00</b><span id="timeBonus"></span></div>
+    <div class="chip world-chip" id="hudWorld" data-icon="moon" data-icon-label="The Moon">The Moon</div>
+    <div class="chip metric discoveries"><span data-icon="ghost"></span><span class="metric-text"><b id="hudFound">0/0</b><small class="metric-label">Ghosts found</small></span></div>
+    <div class="chip metric science"><span data-icon="star"></span><span class="metric-text"><b id="hudStars">0/0</b><small class="metric-label">Science stars</small></span></div>
+    <div class="chip metric hidden" id="hudTime"><span data-icon="clock"></span><span class="metric-text"><b id="timeTxt">0:00</b><small class="metric-label">Mission time</small></span><span id="timeBonus"></span></div>
   </div>
   <div id="intro"></div>
-  <div id="compass" class="hidden"><div class="dial"><div id="needle"></div></div><div class="lbl" id="compassLbl"></div></div>
+  <div id="compass" class="hidden"><div class="dial"><div id="needle"></div></div><div class="nav-copy"><div class="lbl"><b id="compassTarget">Ghost signal</b><span id="compassLbl"></span></div><div id="signal" class="hidden" aria-label="Signal strength: 0 of 4">Signal<span class="bars" aria-hidden="true"><i style="height:4px"></i><i style="height:7px"></i><i style="height:10px"></i><i style="height:14px"></i></span></div></div></div>
   <div id="hudR" class="hidden">
-    <div id="signal" class="chip">Signal<span class="bars"><i style="height:6px"></i><i style="height:11px"></i><i style="height:16px"></i><i style="height:22px"></i></span></div>
-    <div class="hbtn padchip hidden" id="padChip" title="Controller connected" aria-label="Controller connected">🎮</div>
-    <button class="hbtn" id="bookBtn" title="Sticker book (B)" aria-label="Sticker book">📒</button>
-    <button class="hbtn" id="muteBtn" title="Sound on/off (N)" aria-label="Sound on or off">🔊</button>
+    <div class="hbtn padchip hidden" id="padChip" title="Controller connected" aria-label="Controller connected" data-icon="controller"></div>
+    <button class="hbtn" id="pauseBtn" title="Pause (P)" aria-label="Pause game" data-icon="pause"></button>
+    <button class="hbtn" id="bookBtn" title="Sticker book (B)" aria-label="Sticker book" data-icon="book"></button>
+    <button class="hbtn" id="muteBtn" title="Sound on/off (N)" aria-label="Sound enabled" aria-pressed="true" data-icon="sound"></button>
   </div>
-  <div id="coords" class="chip hidden"><span id="coordTxt"></span><small id="hudCtrl">Driving with: ⌨️ keyboard</small></div>
+  <div id="coords" class="chip hidden"><span class="coord-pin" data-icon="pin" style="color:var(--ghost);margin-right:4px"></span><span id="coordTxt"></span></div>
   <canvas id="mini" class="hidden" width="230" height="150"></canvas>
-  <div id="toast"><span class="ico" id="toastIco">⭐</span><span><b id="toastTitle">Science star!</b><span id="toastTxt"></span></span></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="true"><span class="ico" id="toastIco" data-icon="star"></span><span><b id="toastTitle">Science star!</b><span id="toastTxt"></span></span></div>
   <div id="count"></div>
 
   <div id="lobby" class="overlay">
@@ -248,26 +377,37 @@ b,h1,h2,h3{font-weight:700}
             <button class="pick" data-world="mars"><i class="planet mars"></i><span>Mars<small></small></span></button>
           </div>
           <div class="lab">Paint your rover</div>
-          <div class="swatches" id="swatches"></div>
-          <div class="lrow"><button class="btn go" id="kbStart">START ▶</button><button class="btn alt" id="timerBtn" title="Turn the mission timer on or off">⏱ Timer: On</button><button class="btn alt" id="howBtn">❓ How to play</button></div>
+          <div class="paint-picker"><div class="swatches" id="swatches"></div><figure class="paint-preview"><img id="paintPreview" alt="Your rover" width="92" height="92"><figcaption id="paintName"></figcaption></figure></div>
+          <div class="lrow"><button class="btn go" id="kbStart">START ▶</button><button class="btn go hidden" id="continueBtn">Continue ▶</button><button class="btn alt hidden" id="newGameBtn">New game</button><button class="btn alt" id="timerBtn" title="Turn the mission timer on or off">⏱ Timer: On</button><button class="btn alt" id="howBtn" data-icon="help" data-icon-label="How to play">How to play</button></div>
+          <p id="saveStatus" class="hint" role="status"></p>
+          <div id="lobbySettings" class="comfort-settings"></div>
         </div>
       </div>
-      <div class="lab waylab">Drive with a controller or the keyboard, and switch any time. Try the phone controller preview too!</div>
+      <div class="lab waylab">Drive with a controller or the keyboard, and switch any time.</div>
       <div class="ways">
-        <div class="way" data-way="pad"><span class="wico">🎮</span><span><b>Controller</b><span class="wline" id="padStatus">Press <i class="ps x">✕</i></span></span><button class="mini hidden" id="lightsBtn" title="Match the DualSense lightbar to the planet (optional)">💡</button></div>
-        <div class="way" data-way="kb"><span class="wico">⌨️</span><span><b>Keyboard</b><span class="wline">Press <i class="ps">Enter</i></span></span></div>
-        <div class="way" data-way="phone"><div id="qr">Getting a code…</div><span><b>📱 Phone</b><span class="wline">Scan to try</span></span><span id="joinUrl" class="hidden"></span></div>
+        <div class="way" data-way="pad"><span class="wico" data-icon="controller"></span><span><b>Controller</b><span class="wline" id="padStatus">Press <i class="ps x">✕</i></span></span><button class="mini hidden" id="lightsBtn" title="Match the DualSense lightbar to the planet (optional)">💡</button></div>
+        <div class="way" data-way="kb"><span class="wico" data-icon="keyboard"></span><span><b>Keyboard</b><span class="wline">Press <i class="ps">Enter</i></span></span></div>
       </div>
-      <div id="fileWarn" class="warn hidden">This page is open as a file, so a phone can't open the preview. Put the folder online first (see the README). Controller and keyboard play work fine.</div>
+    </div>
+  </div>
+
+  <div id="newGameConfirm" class="overlay hidden" style="z-index:15">
+    <div class="box" style="max-width:560px;text-align:center">
+      <h2>Start a new game?</h2>
+      <p class="sub">This clears your saved discoveries, stars and task stickers. Your settings stay the same.</p>
+      <div class="lrow" style="justify-content:center">
+        <button class="btn go" id="newGameCancel">Keep my progress</button>
+        <button class="btn alt" id="newGameConfirmBtn">Start new game</button>
+      </div>
     </div>
   </div>
 
   <div id="howto" class="overlay hidden">
     <div class="box" style="max-width:900px">
-      <h2 style="font-size:40px;margin:0 0 6px">❓ How to play</h2>
+      <h2 style="font-size:40px;margin:0 0 6px"><span data-icon="help"></span> How to play</h2>
       <p class="sub" style="margin:0 0 14px">Drive to the glowing beams, wake up each machine, and hear its story. Use a controller or the keyboard, and switch whenever you like.</p>
       <table class="howtab">
-        <thead><tr><th></th><th>🎮 Controller</th><th>⌨️ Keyboard</th></tr></thead>
+        <thead><tr><th></th><th><span data-icon="controller" data-icon-label="Controller"></span></th><th><span data-icon="keyboard" data-icon-label="Keyboard"></span></th></tr></thead>
         <tbody>
           <tr><td>Steer</td><td><i class="ps">Left stick</i></td><td><i class="ps">←</i> <i class="ps">→</i> or <i class="ps">A</i> <i class="ps">D</i></td></tr>
           <tr><td>Drive</td><td><i class="ps">R2</i> (press harder to go faster)</td><td><i class="ps">↑</i> or <i class="ps">W</i></td></tr>
@@ -281,22 +421,22 @@ b,h1,h2,h3{font-weight:700}
           <tr><td>Choose a button</td><td><i class="ps">D-pad</i></td><td><i class="ps">←</i> <i class="ps">→</i> on menus</td></tr>
         </tbody>
       </table>
-      <p class="sub" style="margin:12px 0 0">📱 <b>Phone:</b> scan the code on the title screen to try a design preview of a future phone controller. It doesn't drive the rover yet.</p>
       <div style="margin-top:14px"><button class="btn go" id="howClose">Got it ▶</button></div>
     </div>
   </div>
 
   <div id="pause" class="overlay hidden">
     <div class="box" style="max-width:560px;text-align:center">
-      <h2 style="font-size:46px;margin:0 0 6px">⏸ Paused</h2>
+      <h2 style="font-size:46px;margin:0 0 6px"><span data-icon="pause"></span> Paused</h2>
       <p class="sub hidden" id="pauseMsg" style="margin:0 0 10px"></p>
       <p class="sub" style="margin:0 0 18px">The timer is stopped. Take your time!</p>
       <div class="pausebtns">
-        <button class="btn go" id="pauseResume">Resume ▶</button>
+        <button class="btn go" id="pauseResume" data-icon="play" data-icon-label="Resume">Resume</button>
         <button class="btn alt" id="pauseWorld">Go to Mars 🚀</button>
-        <button class="btn alt" id="pauseSound">🔊 Sound: On</button>
-        <button class="btn alt" id="pauseTitle">🏠 Title screen</button>
+        <button class="btn alt" id="pauseSound" data-icon="sound" data-icon-label="Sound: On">Sound: On</button>
+        <button class="btn alt" id="pauseTitle" data-icon="home" data-icon-label="Title screen">Title screen</button>
       </div>
+      <div id="pauseSettings" class="comfort-settings"></div>
       <p class="hint" id="pauseKeys" style="margin:16px 0 0"></p>
     </div>
   </div>
@@ -315,11 +455,12 @@ b,h1,h2,h3{font-weight:700}
         <div id="cardWow"></div>
         <p class="story" id="cardStory"></p>
         <div class="facts" id="cardFacts"></div>
-        <div class="actions">
+      </div>
+      <div class="actions">
           <button class="btn go" id="cardNext">Keep exploring ▶</button>
-          <button class="btn alt" id="cardRead">🔊 Read aloud</button>
+          <button class="btn alt hidden" id="cardReplay">Replay mission task</button>
+          <button class="btn alt" id="cardRead" data-icon="sound" data-icon-label="Read aloud">Read aloud</button>
           <span class="hint" id="cardKeys"></span>
-        </div>
       </div>
     </div>
   </div>
@@ -327,9 +468,9 @@ b,h1,h2,h3{font-weight:700}
   <div id="report" class="overlay hidden">
     <div class="box" style="max-width:640px;text-align:center">
       <div class="kicker" style="display:inline-block;background:var(--ghost);color:#04283a;border-radius:999px;padding:3px 14px;font-weight:700;letter-spacing:1px;font-size:14px;text-transform:uppercase">Time's up on <span id="repWorld"></span></div>
-      <h2 style="font-size:44px;margin:10px 0 4px">📋 Mission Report</h2>
+      <h2 style="font-size:44px;margin:10px 0 4px"><span data-icon="report"></span> Mission Report</h2>
       <p style="color:var(--dim);font-size:19px;margin:0 0 18px">Great driving, explorer! Here's what you found so far.</p>
-      <div class="repStats"><div><span>👻</span><b id="repGhosts">0 / 0</b><small>ghosts found</small></div><div><span>⭐</span><b id="repStars">0 / 0</b><small>science stars</small><small id="repBonus" style="display:block;color:var(--go)"></small></div></div>
+      <div class="repStats"><div><span data-icon="ghost"></span><b id="repGhosts">0 / 0</b><small>ghosts found</small></div><div><span data-icon="star"></span><b id="repStars">0 / 0</b><small>science stars</small><small id="repBonus" style="display:block;color:var(--go)"></small></div></div>
       <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:24px">
         <button class="btn go" id="reportKeep">Keep exploring ▶</button>
         <button class="btn alt" id="reportRetry">Try again ↺</button>
@@ -341,27 +482,48 @@ b,h1,h2,h3{font-weight:700}
 
   <div id="book" class="overlay hidden">
     <div class="box">
-      <h2>📒 Sticker <span>Book</span></h2>
-      <div id="bookBody"></div>
-      <h3>Science stars</h3>
-      <ul id="bookFacts"></ul>
-      <div style="margin-top:20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap"><button class="btn go" id="bookClose">Back to driving ▶</button><span class="hint" id="bookKeys"></span></div>
+      <header class="book-header" id="bookHeader">
+        <div class="book-title-row"><h2><span data-icon="book"></span> Mission <span>Sticker Book</span></h2><button class="btn go" id="bookClose" data-icon="play" data-icon-label="Back to driving">Back to driving</button></div>
+        <p class="book-intro">Pick a patch to revisit its story or try its task.</p>
+        <nav id="bookNav" aria-label="Sticker book sections"></nav>
+      </header>
+      <div class="book-pages">
+        <div id="bookBody"></div>
+        <h3 id="book-section-stars" tabindex="-1"><span data-icon="star"></span> Science stars</h3>
+        <ul id="bookFacts"></ul>
+        <p class="hint" id="bookKeys"></p>
+      </div>
     </div>
   </div>
 </div>
 
-<script src="lib/qrcode.js"></script>
 <script src="js/data.js"></script>
 <script>
 /* Load the 3D engine and the game, one file after another. */
+window.showGameError = function (message) {
+  if (document.getElementById("gameError")) return;
+  const panel = document.createElement("div"); panel.id = "gameError"; panel.className = "overlay"; panel.style.zIndex = "50";
+  panel.setAttribute("role", "alertdialog"); panel.setAttribute("aria-modal", "true"); panel.setAttribute("aria-labelledby", "errorHeading");
+  panel.innerHTML = '<div class="box errorbox"><h1 id="errorHeading">Let’s get you exploring</h1><p></p><button class="btn go">Try again ↻</button></div>';
+  panel.querySelector("p").textContent = message;
+  panel.querySelector("button").onclick = () => location.reload();
+  document.body.appendChild(panel);
+  for (const child of document.body.children) if (child !== panel) child.inert = true;
+  panel.querySelector("button").focus();
+  panel.addEventListener("keydown", e => { if (e.key === "Tab") { e.preventDefault(); panel.querySelector("button").focus(); } });
+};
 (function () {
   const tasks = ["apollo11-land-eagle", "apollo17-fix-fender", "spirit-broken-wheel", "ingenuity-first-flight", "surveyor3-soft-landing", "apollo14-laser-mirror", "apollo15-unfold-rover",
     "apollo16-grand-prix", "viking1-feed-lab", "viking2-focus-camera", "sojourner-roll-out", "opportunity-catch-wind", "phoenix-dig-ice", "insight-seismometer"]; // one file per mission task
-  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/gamepad.js", "js/prompts.js", "js/minigames/core.js"].concat(tasks.map(t => "js/minigames/" + t + ".js"), ["js/host.js"]);
+  const files = ["lib/three.min.js", "js/models.js", "js/audio.js", "js/preferences.js", "js/progress.js", "js/icons.js", "js/discovery-fx.js", "js/ui.js", "js/gamepad.js", "js/prompts.js", "js/minigames/core.js"].concat(tasks.map(t => "js/minigames/" + t + ".js"), ["js/host.js"]);
   (function next() {
-    if (!files.length) { startHost(); return; }
+    if (!files.length) {
+      try { startHost(); }
+      catch (error) { console.error(error); showGameError("The 3D view couldn’t start. Try again, or open the game in another browser. Your saved discoveries will be kept."); }
+      return;
+    }
     const s = document.createElement("script"); s.src = files.shift(); s.onload = next;
-    s.onerror = () => { document.body.innerHTML = "<p style='padding:30px;font-size:20px'>Couldn't load " + s.src + ". Make sure the <b>lib</b> and <b>js</b> folders are next to index.html.</p>"; };
+    s.onerror = () => showGameError("Part of the game couldn’t load. Check your connection and try again. If you downloaded the game, keep the lib and js folders beside index.html.");
     document.body.appendChild(s);
   })();
 })();

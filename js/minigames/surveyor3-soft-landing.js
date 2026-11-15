@@ -2,6 +2,8 @@
 // Surveyor 3: a robot that landed on its own. Its engines didn't shut off in time, so it bounced twice.
 Tasks.add("s3", {
   title: "Soft landing!", hint: "Tap or hold to fire the engines. Touch down slowly.",
+  action: () => "Touch down slowly",
+  status: s => s.burn ? "Engines firing — descent slowing" : s.vy <= (s.limit || 45) ? "Descent safe" : "Hold to slow your descent",
   start(s) { Object.assign(s, { y: 40, vy: 20, gy: 300, bounces: 0, noPointer: true }); },
   step(s, dt, inp, T) {
     s.burn = inp.hold; s.vy = T.clamp(s.vy + (42 - (inp.hold ? 115 : 0)) * dt, -80, 170); s.y = Math.max(30, s.y + s.vy * dt);

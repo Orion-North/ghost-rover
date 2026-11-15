@@ -2,6 +2,8 @@
 // Apollo 11: Armstrong flew past a boulder field and landed with little fuel to spare.
 Tasks.add("a11", {
   title: "Land the Eagle!", hint: "Steer to the clear spot. Hold to fire the engine and slow down.",
+  action: () => "Land in the clear spot",
+  status: s => s.burn ? "Engine firing" : s.slow ? "Descent safe — steer to the landing zone" : "Hold to slow your descent",
   start(s) { Object.assign(s, { x: 140, y: 50, vy: 0, fuel: 1, zone: 580, gy: 330, py: 440, rocks: [[120, 18], [230, 24], [320, 30], [410, 20], [460, 26], [700, 26], [770, 18]] }); },
   step(s, dt, inp, T) {
     s.x += T.clamp(inp.px - s.x, -170 * dt, 170 * dt);

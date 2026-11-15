@@ -2,6 +2,7 @@
 // Viking 1: its robot arm scooped soil into tiny labs inside the lander to test for life.
 Tasks.add("v1", {
   title: "Feed the lab!", hint: "Hold over the soil to scoop, then hold over the lab to pour it in.", world: "mars",
+  action: s => (s.carry ? "Pour soil into the lab" : "Scoop soil from the ground") + " · sample " + Math.min(s.n + 1, 2) + " of 2",
   start(s) { Object.assign(s, { n: 0, carry: false, tipY: 230, py: 360 }); },
   step(s, dt, inp, T) {
     if (!s.carry) { s.aimX = 580; if (T.hot(s, "h", 580, 140, 1.6, dt) >= 1) { s.carry = true; s.h = 0; T.sfx("snap"); T.buzz("star"); T.spark(inp.px, 330, "#c0522a", 12); } }

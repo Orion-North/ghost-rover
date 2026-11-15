@@ -1,7 +1,10 @@
 /* Ghost Rovers mission task. See js/minigames/core.js for how tasks work. */
 // Opportunity: gusts of Martian wind sometimes blew dust off its solar panels.
 Tasks.add("opp", {
+  steerOnly: true,
   title: "Catch the wind!", hint: "Steer into a passing gust to blow the dust off.", world: "mars",
+  action: () => "Catch a passing gust",
+  status: s => s.hit ? "In the wind — panels clearing" : s.aimG ? "Steer toward the glowing gust" : "A gust is on its way",
   start(s) { Object.assign(s, { x: 120, pow: .2, gusts: [], next: .6, py: 440 }); },
   step(s, dt, inp, T) {
     s.x = T.clamp(s.x + T.clamp(inp.px - s.x, -130 * dt, 130 * dt), 70, 730);

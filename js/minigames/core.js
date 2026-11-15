@@ -47,7 +47,8 @@ const Tasks = (() => {
     },
     // hold the button with the pointer over a spot: returns how full it is (0..1). Fills in "need" seconds.
     hot(s, key, x, r, need, dt) {
-      const on = Math.abs(inp.px - x) < r * (1 + T.assist * .8) && inp.hold;
+      s.actionAligned = Math.abs(inp.px - x) < r * (1 + T.assist * .8);
+      const on = s.actionAligned && inp.hold; s.actionHolding = on;
       s[key] = clamp((s[key] || 0) + (on ? dt / need : -dt * .6), 0, 1); return s[key];
     },
     pointer(g, x, y) { // the little hand you move
@@ -74,7 +75,7 @@ const Tasks = (() => {
       if (s.k >= xs.length) { s.done = true; return false; }
       const x = xs[s.k]; s.aimX = x; s.aimHold = true;
       const f = T.hot(s, "h", x, r || 44, Array.isArray(need) ? need[s.k] : need, dt);
-      if (f >= 1) { s.k++; s.h = 0; T.sfx("snap"); T.buzz("star"); T.spark(x, s.py || 300, T.C.sun, 14); if (s.k >= xs.length) s.done = true; return true; }
+      if (f >= 1) { s.k++; s.h = 0; s.actionAligned = s.actionHolding = false; T.sfx("snap"); T.buzz("star"); T.spark(x, s.py || 300, T.C.sun, 14); if (s.k >= xs.length) s.done = true; return true; }
       return false;
     },
     spark(x, y, col, n) { if (!cur) return; for (let i = 0; i < (n || 12); i++) { const a = rnd(0, 6.3), v = rnd(40, 220); cur.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, t: rnd(.4, .9), c: col || T.C.sun, r: rnd(3, 6) }); } },
@@ -86,11 +87,12 @@ const Tasks = (() => {
   function build() {
     if (el) return;
     el = document.createElement("div"); el.id = "task"; el.className = "overlay hidden";
-    el.innerHTML = '<div class="box taskbox"><div class="taskhead"><div><div class="kicker">🛠 Mission task</div><h2 id="taskTitle"></h2><p id="taskHint"></p><p class="hint" id="taskKeys"></p></div><button class="btn alt" id="taskSkip">Skip ▶</button></div>' +
-      '<div class="taskstage"><canvas id="taskCv"></canvas><div id="taskStamp">MISSION TASK DONE ✓</div></div><div class="taskbar"><i id="taskFill"></i></div></div>';
+    el.innerHTML = '<div class="box taskbox"><div class="taskhead"><div><div class="kicker" id="taskKicker">Mission task</div><h2 id="taskTitle"></h2><p id="taskHint"></p><p class="hint" id="taskKeys"></p><p id="taskAction" style="font-size:16px;font-weight:700;color:#fff;margin:7px 0 0"></p><span id="taskAnnounce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap"></span></div><button class="btn alt" id="taskSkip">Skip ▶</button></div>' +
+      '<div class="taskstage"><canvas id="taskCv" role="img" aria-label="Mission task. Use steering to move and hold Enter or the drive button to interact."></canvas><div id="taskStamp" aria-hidden="true">MISSION TASK DONE ✓</div></div><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px;font-size:13px;font-weight:700;color:#c7cfff"><span id="taskProgressText">Mission progress · 0%</span><span id="taskAssist" role="status" style="color:#ffe19a"></span></div><div class="taskbar" style="margin-top:5px" role="progressbar" aria-label="Mission task progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="taskFill"></i></div></div>';
+    if (typeof Icons !== "undefined") Icons.label(el.querySelector("#taskKicker"), "tool", "Mission task");
     document.getElementById("hostView").appendChild(el);
     const cv = el.querySelector("#taskCv"); cv.width = W * 2; cv.height = H * 2; g = cv.getContext("2d");
-    const at = e => { const r = cv.getBoundingClientRect(); inp.px = clamp((e.clientX - r.left) / r.width * W, 0, W); inp.mouse = true; };
+    const at = e => { const r = cv.getBoundingClientRect(), range = cur && cur.d.pointerRange || [0, W]; inp.px = clamp((e.clientX - r.left) / r.width * W, range[0], range[1]); inp.mouse = true; };
     cv.addEventListener("pointermove", at);
     cv.addEventListener("pointerdown", e => { at(e); inp.mouseHold = true; try { cv.setPointerCapture(e.pointerId); } catch (x) { } e.preventDefault(); });
     ["pointerup", "pointercancel"].forEach(n => cv.addEventListener(n, () => inp.mouseHold = false));
@@ -102,17 +104,37 @@ const Tasks = (() => {
     cur = { id, d, s: { p: 0, done: false }, t: 0, parts: [], doneT: -1, onEnd: o.onEnd };
     Object.assign(inp, { px: W / 2, hold: false, press: false, mouse: false, mouseHold: false, x: 0 }); T.assist = 0; T.time = 0; T.world = o.world || d.world || "moon";
     el.querySelector("#taskTitle").textContent = d.title; el.querySelector("#taskHint").textContent = d.hint || "";
-    el.querySelector("#taskStamp").classList.remove("show"); el.querySelector("#taskFill").style.width = "0%"; el.classList.remove("hidden");
-    d.start(cur.s, T); return true;
+    el.querySelector("#taskCv").setAttribute("aria-label", d.title + ". " + (d.hint || "") + (d.steerOnly ? " Use steering or the pointer to adjust." : " Use steering to move and hold Enter or the drive button to interact."));
+    el.querySelector("#taskStamp").classList.remove("show"); el.querySelector("#taskStamp").setAttribute("aria-hidden", "true"); el.querySelector(".taskbar").setAttribute("aria-valuenow", "0"); el.querySelector("#taskFill").style.width = "0%"; el.classList.remove("hidden");
+    el.querySelector("#taskAnnounce").textContent = "";
+    d.start(cur.s, T); feedback(); return true;
+  }
+  function feedback() {
+    if (!cur || !el) return;
+    const { d, s } = cur, write = (selector, text) => { const node = el.querySelector(selector); if (node.textContent !== text) node.textContent = text; };
+    const labels = d.actions, action = typeof d.action === "function" ? d.action(s, inp, T) : labels ? labels[Math.min(s.k || 0, labels.length - 1)] : "Follow the glowing target";
+    const state = s.done ? "Complete!" : typeof d.status === "function" ? d.status(s, inp, T) : s.actionHolding ? "Holding…" : s.actionAligned ? "Aligned — hold to work" : "Move to the glowing spot";
+    const cue = [action, state].filter(Boolean).join(" · ");
+    write("#taskAction", cue);
+    // Visual feedback stays immediate. Speak only a settled cue, so small
+    // alignment corrections do not repeatedly interrupt a screen reader.
+    if (cue !== cur.feedbackCandidate) { cur.feedbackCandidate = cue; cur.feedbackSince = cur.t; }
+    if (s.done || (cur.t - cur.feedbackSince >= .4 && cur.t - (cur.announcedAt == null ? -2 : cur.announcedAt) >= 1.5)) {
+      if (el.querySelector("#taskAnnounce").textContent !== cue) { write("#taskAnnounce", cue); cur.announcedAt = cur.t; }
+    }
+    const percent = Math.round(clamp(s.p, 0, 1) * 100);
+    write("#taskProgressText", "Mission progress · " + percent + "%");
+    write("#taskAssist", cur.t >= 40 ? "Helping hands · finishing together" : cur.t >= 30 ? "Helping hands · targets are easier" : "");
+    el.querySelector("#taskAction").style.color = s.done || s.actionHolding ? "#bfffcf" : s.actionAligned ? "#ffe19a" : "#fff";
   }
   function end(ok) { const c = cur; cur = null; if (el) el.classList.add("hidden"); if (c && c.onEnd) c.onEnd(ok); }
-  function skip() { if (cur) end(false); }
+  function skip() { if (cur) end(cur.doneT >= 0); }
 
   // one frame. raw = { x: steering -1..1, hold: button held }. Works without a screen too, so tests can run tasks quickly.
   function step(dt, raw, noDraw) {
     if (!cur) return; const c = cur, s = c.s; raw = raw || {};
     const hold = !!raw.hold || inp.mouseHold; inp.press = hold && !inp.hold; inp.hold = hold; inp.x = raw.x || 0; inp.back = !!raw.back;
-    if (inp.x) { inp.mouse = false; inp.px = clamp(inp.px + inp.x * 520 * dt, 0, W); }
+    if (inp.x) { inp.mouse = false; const range = c.d.pointerRange || [0, W]; inp.px = clamp(inp.px + inp.x * 520 * dt, range[0], range[1]); }
     c.t += dt; T.time = c.t; T.assist = clamp((c.t - 30) / 10, 0, 1);
     if (c.doneT < 0) {
       c.d.step(s, dt, inp, T);
@@ -121,13 +143,17 @@ const Tasks = (() => {
     } else { c.doneT += dt; if (c.doneT > 1.7) { end(true); return; } }
     for (const p of c.parts) { p.t -= dt; p.x += p.vx * dt; p.y += p.vy * dt; if (!p.soft) p.vy += 300 * dt; }
     c.parts = c.parts.filter(p => p.t > 0);
+    feedback();
     if (noDraw || !g) return;
     g.setTransform(2, 0, 0, 2, 0, 0); g.clearRect(0, 0, W, H); g.save(); c.d.draw(s, g, T, inp); g.restore();
     if (!s.noPointer && c.doneT < 0) T.pointer(g, inp.px, s.py || 420);
     for (const p of c.parts) { g.globalAlpha = clamp(p.t * 2.5, 0, 1); g.fillStyle = p.c; g.beginPath(); g.arc(p.x, p.y, p.r, 0, 7); g.fill(); } g.globalAlpha = 1;
-    el.querySelector("#taskFill").style.width = Math.round(clamp(s.p, 0, 1) * 100) + "%";
+    const percent = Math.round(clamp(s.p, 0, 1) * 100);
+    el.querySelector("#taskFill").style.width = percent + "%";
+    el.querySelector(".taskbar").setAttribute("aria-valuenow", String(percent));
+    el.querySelector("#taskStamp").setAttribute("aria-hidden", String(!s.done));
   }
 
   return { add(id, def) { defs[id] = def; }, has: id => !!defs[id], title: id => defs[id] && defs[id].title, ids: () => Object.keys(defs),
-    start, step, skip, active: () => !!cur, state: () => cur && cur.s, elapsed: () => cur ? cur.t : 0, T, inp };
+    start, step, skip, active: () => !!cur, steerOnly: () => !!(cur && cur.d.steerOnly), state: () => cur && cur.s, elapsed: () => cur ? cur.t : 0, T, inp };
 })();

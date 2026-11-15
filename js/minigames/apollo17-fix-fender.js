@@ -2,6 +2,7 @@
 // Apollo 17: a fender broke, and the crew fixed it with duct tape, folded paper maps and clamps.
 Tasks.add("a17", {
   title: "Fix the fender!", hint: "Hold on each glowing crack to patch it.",
+  actions: ["Tape the first crack · 1 of 4", "Tape the second crack · 2 of 4", "Fit the folded map · 3 of 4", "Secure the clamp · 4 of 4"],
   start(s) { s.spots = [{ x: 335, y: 235, kind: "tape" }, { x: 465, y: 235, kind: "tape" }, { x: 400, y: 206, kind: "map" }, { x: 316, y: 268, kind: "clamp" }]; s.py = 235; },
   step(s, dt, inp, T) {
     T.seq(s, s.spots.map(o => o.x), 2.2, dt, 40); const i = Math.min(s.k, 3); s.py = s.spots[i].y;

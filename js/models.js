@@ -34,9 +34,10 @@ const Models = (() => {
   }
   function wheel(g, r, w, x, y, z, tire, hub) { // axis along z
     const h = new T.Group(); h.position.set(x, y, z); g.add(h);
+    h.userData.tread = { width: w + .2, length: r * .28, pitch: 2 * Math.PI * r / 6 };
     const t = cyl(h, r, r, w, 12, tire); t.rotation.x = Math.PI / 2;
     const c = cyl(h, r * .5, r * .5, w + .6, 8, hub); c.rotation.x = Math.PI / 2;
-    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; box(h, r * .5, r * .28, w + .2, tire, Math.cos(a) * r * .95, Math.sin(a) * r * .95, 0).rotation.z = a; }
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; box(h, r * .5, h.userData.tread.length, h.userData.tread.width, tire, Math.cos(a) * r * .95, Math.sin(a) * r * .95, 0).rotation.z = a; }
     return h;
   }
 
@@ -238,24 +239,57 @@ const Models = (() => {
     const g = new T.Group(), body = new T.Group(); g.add(body);
     const paint = new T.MeshLambertMaterial({ color, flatShading: true });
     const paintDark = new T.MeshLambertMaterial({ color, flatShading: true });
-    box(body, 30, 9, 19, paint, 0, 15, 0);
-    box(body, 24, 5, 15, paint, -1, 21, 0);
-    box(body, 4, 5, 21, C.white, 15, 13.5, 0);               // front bumper
-    box(body, 3, 6, 17, paintDark, -15.5, 15, 0);
-    box(body, 15, .8, 13, C.navy, -5, 24, 0);                 // solar panel
-    for (let i = -1; i <= 1; i++) box(body, 15.2, .9, .5, C.silver, -5, 24.05, i * 4.3);
+    // Broad bevels catch the light like a painted toy. Other mission models
+    // keep their existing block geometry and the rover keeps its silhouette.
+    function softBox(parent, w, h, d, material, x, y, z, bevel = .8) {
+      const b = Math.min(bevel, w / 4, h / 4, d / 4), shape = new T.Shape();
+      const a = w / 2 - b, c = h / 2 - b;
+      shape.moveTo(-a, -c); shape.lineTo(a, -c); shape.lineTo(a, c); shape.lineTo(-a, c); shape.closePath();
+      const geo = new T.ExtrudeGeometry(shape, { depth: d - b * 2, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 1, steps: 1, curveSegments: 1 });
+      geo.translate(0, 0, -(d - b * 2) / 2);
+      return add(parent, geo, material, x, y, z);
+    }
+    softBox(body, 30, 9, 19, paint, 0, 15, 0, 1.2);
+    softBox(body, 24, 5, 15, paint, -1, 21, 0);
+    softBox(body, 4, 5, 21, C.white, 15, 13.5, 0);            // friendly chunky bumper
+    softBox(body, 3, 6, 17, paintDark, -15.5, 15, 0);
+    // A simple rear badge and cream bumper stay legible against either planet.
+    const rear = new T.Group(); rear.name = "Rover rear trim"; body.add(rear);
+    softBox(rear, .8, 4.1, 10.5, C.navy, -17.15, 15.8, 0, .15);
+    softBox(rear, 2.3, 2.1, 20, C.white, -16, 11.2, 0, .3);
+    const tailPaint = mat(0xff7867, { emissive: 0x6a1b18 });
+    [-6.9, 6.9].forEach(z => {
+      const bezel = cyl(rear, 1.55, 1.55, .6, 10, C.dark, -17.25, 15.6, z); bezel.rotation.z = Math.PI / 2;
+      const lamp = cyl(rear, 1.13, 1.13, .7, 10, tailPaint, -17.65, 15.6, z); lamp.rotation.z = Math.PI / 2;
+      lamp.name = "Rear lamp"; lamp.castShadow = false;
+    });
+    box(body, 25, 2.2, 13, C.dark, -1, 9.8, 0);             // toy undercarriage
+    [-1, 1].forEach(side => {
+      softBox(body, 17, 3.4, .9, paintDark, -3, 14.4, side * 9.4, .2);
+      box(body, 20, 1.1, .5, C.white, -2, 17.7, side * 9.65);
+      // Three big graphic vents read cleanly from the chase camera.
+      [-7, -3, 1].forEach(x => box(body, 1.5, 1.8, .3, C.dark, x, 14.4, side * 9.95));
+    });
+    softBox(body, 16, 1.2, 14, C.white, -5, 24, 0, .3);      // clean solar-panel frame
+    box(body, 15, .5, 13, C.navy, -5, 24.65, 0);
+    const cellPaint = mat(0x426bc0, { emissive: 0x091731 });
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 2; col++) {
+      box(body, 6.8, .15, 3.5, cellPaint, -8.7 + col * 7.4, 24.96, -4.2 + row * 4.2);
+    }
     [6.5, -6.5].forEach(z => { const l = sph(body, 1.9, mat(0xfff3b0, { emissive: 0xffd45e }), 17, 14.5, z); l.castShadow = false; });
     // mast + head with eyes
     cyl(body, 1.7, 2.1, 12, 8, C.silver, 8, 29, 0);
+    cyl(body, 2.8, 2.8, 2, 8, paintDark, 8, 24.5, 0);
     const head = new T.Group(); head.position.set(8.5, 37, 0); body.add(head);
-    box(head, 9, 8, 15, C.white, 0, 0, 0);
+    softBox(head, 9, 8, 15, C.white, 0, 0, 0, .9);
     box(head, 1, 5.4, 12.4, C.dark, 4.3, 0, 0);
-    box(head, 9.6, 2.4, 15.6, paint, 0, 4.6, 0);              // a little cap in the rover's colour
+    softBox(head, 9.6, 2.4, 15.6, paint, 0, 4.6, 0, .6);     // a little cap in the rover's colour
     box(head, 1, 3, 9, paint, -4.3, -.5, 0);
     const eyes = [], pupils = [];
     [3.3, -3.3].forEach(z => {
       const e = sph(head, 2.5, mat(0xffffff, { emissive: 0x666666 }), 4.6, 0, z); e.castShadow = false; eyes.push(e);
       const p = sph(head, 1.25, C.dark, 6.5, 0, z); p.castShadow = false; pupils.push(p);
+      const glint = sph(p, .36, mat(0xffffff, { emissive: 0xffffff }), .95, .45, .3); glint.castShadow = false;
     });
     // antenna with a bobble
     const ant = new T.Group(); ant.position.set(-11, 23.5, -6); body.add(ant);
@@ -263,7 +297,15 @@ const Models = (() => {
     const bob = sph(ant, 1.8, mat(0xffd23f, { emissive: 0x8a6500 }), 0, 15.5, 0);
     // six fat wheels
     const wheels = [];
-    [11.5, 0, -11.5].forEach(x => [12.5, -12.5].forEach(z => { const w = wheel(g, 6.6, 6, x, 6.6, z, C.wheel, paint); w.userData.x = x; w.userData.z = z; wheels.push(w); }));
+    [11.5, 0, -11.5].forEach(x => [12.5, -12.5].forEach(z => {
+      strut(g, [x * .75, 10.2, z * .57], [x, 6.8, z * .9], 1, C.dark);
+      const w = wheel(g, 6.6, 6, x, 6.6, z, C.wheel, paint);
+      const side = Math.sign(z);
+      const rim = cyl(w, 3.5, 3.5, .7, 12, C.white, 0, 0, side * 3.3); rim.rotation.x = Math.PI / 2;
+      const hub = cyl(w, 2.4, 2.4, .9, 10, paint, 0, 0, side * 3.7); hub.rotation.x = Math.PI / 2;
+      const pin = cyl(w, .85, .85, 1, 8, C.dark, 0, 0, side * 4.1); pin.rotation.x = Math.PI / 2;
+      w.userData.x = x; w.userData.z = z; wheels.push(w);
+    }));
     // boost flame (hidden until boosting)
     const flame = add(body, new T.ConeGeometry(4, 16, 8), new T.MeshBasicMaterial({ color: 0xffb133, transparent: true, opacity: .9, blending: T.AdditiveBlending, depthWrite: false }), -25, 15, 0);
     flame.rotation.z = Math.PI / 2; flame.castShadow = false; flame.visible = false;
@@ -272,11 +314,33 @@ const Models = (() => {
     return { group: g, body, head, eyes, pupils, ant, bob, wheels, flame, setColor };
   }
 
+  // Geometry is owned by each model. Cached paints and hologram materials are
+  // shared by all models; keep them (and explicitly preserved world assets) alive.
+  function dispose(root, keep) {
+    keep = keep || {};
+    const geometries = new Set(keep.geometries || []), materials = new Set([holoFace, holoLine, ...Object.values(cache), ...(keep.materials || [])]);
+    const textures = new Set(keep.textures || []);
+    root.traverse(o => {
+      if (o.geometry && !o.isSprite && !geometries.has(o.geometry)) { geometries.add(o.geometry); o.geometry.dispose(); }
+      for (const material of [].concat(o.material || [], o.userData && o.userData.real || [])) {
+        if (materials.has(material)) continue;
+        materials.add(material);
+        for (const value of Object.values(material)) if (value && value.isTexture && !textures.has(value)) { textures.add(value); value.dispose(); }
+        material.dispose();
+      }
+    });
+  }
+
   // ---- small offscreen renderer for card art and stickers ----
-  let thumb = null;
+  let thumb = null, contextListener = null;
+  function onContextChange(fn) { contextListener = fn; }
   function thumbSetup() {
     if (thumb) return thumb;
-    const renderer = new T.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    let renderer;
+    try { renderer = new T.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); }
+    catch (_) { throw new Error("The game couldn't create its story graphics. Try enabling hardware acceleration or opening it in another browser."); }
+    renderer.domElement.addEventListener("webglcontextlost", e => { e.preventDefault(); if (contextListener) contextListener(renderer.domElement, true, e); });
+    renderer.domElement.addEventListener("webglcontextrestored", e => { if (contextListener) contextListener(renderer.domElement, false, e); });
     renderer.setPixelRatio(1); renderer.setSize(360, 360, false);
     const scene = new T.Scene();
     scene.add(new T.HemisphereLight(0xffffff, 0x556080, .95));
@@ -287,7 +351,7 @@ const Models = (() => {
   }
   function thumbShow(type, opts) {
     const t = thumbSetup();
-    if (t.model) t.holder.remove(t.model);
+    if (t.model) { t.holder.remove(t.model); dispose(t.model); }
     t.model = hardware(type, opts); t.holder.add(t.model);
     const bb = new T.Box3().setFromObject(t.model), c = bb.getCenter(new T.Vector3()), s = bb.getSize(new T.Vector3());
     t.model.position.sub(c);
@@ -298,5 +362,5 @@ const Models = (() => {
   function thumbRender(angle) { const t = thumbSetup(); t.holder.rotation.y = angle; if (t.model) t.model.traverse(o => { if (o.userData.spin) o.rotation.y = angle * 3; }); t.renderer.render(t.scene, t.cam); }
   function sticker(type, opts) { thumbShow(type, opts); thumbRender(-.7); return thumb.renderer.domElement.toDataURL("image/png"); }
 
-  return { hardware, setHolo, playerRover, starGeo, thumbSetup, thumbShow, thumbRender, sticker, holoFace, holoLine, mat, C };
+  return { hardware, setHolo, playerRover, starGeo, thumbSetup, thumbShow, thumbRender, sticker, dispose, onContextChange, holoFace, holoLine, mat, C };
 })();

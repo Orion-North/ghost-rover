@@ -2,6 +2,7 @@
 // InSight: its robot arm set a seismometer on the ground, then covered it with a dome-shaped shield.
 Tasks.add("ins", {
   title: "Place the seismometer!", hint: "Hold to grab, carry it to the glowing spot, and hold to set it down.", world: "mars",
+  actions: ["Grab the seismometer · 1 of 4", "Place the seismometer · 2 of 4", "Grab the shield · 3 of 4", "Cover the seismometer · 4 of 4"],
   start(s) { s.xs = [210, 560, 110, 560]; s.ys = [200, 335, 195, 330]; s.py = 200; s.tipY = 200; },
   step(s, dt, inp, T) {
     T.seq(s, s.xs, [1.2, 2.2, 1.2, 2.2], dt, 40); const k = Math.min(s.k || 0, 3); s.py = s.ys[k];

@@ -1,9 +1,12 @@
 /* Ghost Rovers mission task. See js/minigames/core.js for how tasks work. */
 // Viking 2: in winter it photographed a thin layer of white frost on the rocks and soil.
 Tasks.add("v2", {
+  steerOnly: true, pointerRange: [100, 700],
   title: "Focus the camera!", hint: "Steer the focus slider until the photo is sharp.", world: "mars",
+  action: s => s.on ? "Focus locked" : "Adjust focus",
+  status: s => s.on ? "Keep steady" : "",
   start(s, T) {
-    Object.assign(s, { fx: 170 + Math.random() * 120 + (Math.random() < .5 ? 0 : 340), lock: 0, py: 438 });
+    Object.assign(s, { fx: 170 + Math.random() * 120 + (Math.random() < .5 ? 0 : 340), lock: 0, py: 438, noPointer: true });
     const mk = () => { const c = document.createElement("canvas"); c.width = 600; c.height = 320; return c; };
     s.scene = mk(); s.frost = mk(); s.tmp = document.createElement("canvas");
     const a = s.scene.getContext("2d"), b = s.frost.getContext("2d"), gr = a.createLinearGradient(0, 0, 0, 320);
@@ -20,7 +23,7 @@ Tasks.add("v2", {
     s.lock = T.clamp(s.lock + (s.on ? dt / 6 : -dt * .4), 0, 1); s.p = Math.max(s.p, s.lock); if (s.lock >= 1) s.done = true;
     s.aimX = s.fx; s.aimHold = false;
   },
-  draw(s, g, T) {
+  draw(s, g, T, inp) {
     g.fillStyle = "#141a3c"; g.fillRect(0, 0, 800, 450);
     const b = 1 + (s.d || 0) / 10, w = Math.max(6, Math.round(600 / b)), h = Math.max(4, Math.round(320 / b)), t = s.tmp; t.width = w; t.height = h;
     const tg = t.getContext("2d"); tg.imageSmoothingEnabled = true; tg.drawImage(s.scene, 0, 0, w, h); tg.globalAlpha = T.clamp(1 - (s.d || 0) / 140, 0, 1); tg.drawImage(s.frost, 0, 0, w, h);
@@ -28,6 +31,9 @@ Tasks.add("v2", {
     g.strokeStyle = "#fff"; g.lineWidth = 6; [[100, 30, 1, 1], [700, 30, -1, 1], [100, 350, 1, -1], [700, 350, -1, -1]].forEach(([x, y, a, c]) => { g.beginPath(); g.moveTo(x + a * 40, y); g.lineTo(x, y); g.lineTo(x, y + c * 40); g.stroke(); });
     if (s.on) T.text(g, "Sharp! Look at the white frost", 400, 60, 24, "#ffffff");
     T.box(g, 100, 380, 600, 24, 12, "#0d1230", 3); for (let i = 1; i < 12; i++) { g.fillStyle = "rgba(255,255,255,.4)"; g.fillRect(100 + i * 50, 386, 3, 12); }
-    T.text(g, "FOCUS", 60, 392, 17); T.bar(g, 720, 120, 26, 220, s.lock, T.C.go, "📷");
+    const knobX = T.clamp(inp.px, 100, 700);
+    T.circ(g, knobX, 392, 17, s.on ? T.C.go : T.C.sun, 4);
+    T.line(g, knobX, 383, knobX, 401, 3, "#fff");
+    T.text(g, "FOCUS", 60, 392, 17); T.bar(g, 720, 120, 26, 220, s.lock, T.C.go, "LOCK");
   }
 });

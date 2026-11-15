@@ -1403,18 +1403,6 @@ function startHost() {
   }
 
   // ------------------------------------------------------------------
-  // the phone QR code opens phone.html: a design preview of a future phone controller.
-  // It doesn't connect to the game or send any input.
-  // ------------------------------------------------------------------
-  if (location.protocol === "file:") $("fileWarn").classList.remove("hidden");
-  // built from this page's own address, so on GitHub Pages it opens https://<you>.github.io/<repo>/phone.html
-  const path = location.pathname, folder = /\/[^/]*\.[^/]*$/.test(path) ? path.replace(/[^/]*$/, "") : path.replace(/\/?$/, "/"); // "/ghost-rover/index.html", "/ghost-rover/" and "/ghost-rover" all mean the folder "/ghost-rover/"
-  const phoneUrl = location.origin + folder + "phone.html";
-  try { const q = qrcode(0, "M"); q.addData(phoneUrl); q.make(); $("qr").innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); }
-  catch (e) { $("qr").textContent = "Couldn't make the code."; }
-  $("joinUrl").textContent = phoneUrl;
-
-  // ------------------------------------------------------------------
   // game update
   // ------------------------------------------------------------------
   function update(dt) {
